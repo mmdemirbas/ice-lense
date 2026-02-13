@@ -22,19 +22,20 @@ sealed class GraphNode(
     var x by mutableStateOf(initialX)
     var y by mutableStateOf(initialY)
 
+    data class MetadataNode(
+        override val id: String,
+        val fileName: String,
+        val data: TableMetadata,
+        val initialX: Double = 0.0,
+        val initialY: Double = 0.0,
+    ) : GraphNode(id, initialX, initialY, 260.0, 120.0)
+
     data class SnapshotNode(
         override val id: String,
         val data: Snapshot,
         val initialX: Double = 0.0,
         val initialY: Double = 0.0,
     ) : GraphNode(id, initialX, initialY, 220.0, 100.0)
-
-    data class ManifestListNode(
-        override val id: String,
-        val path: String,
-        val initialX: Double = 0.0,
-        val initialY: Double = 0.0,
-    ) : GraphNode(id, initialX, initialY, 180.0, 60.0)
 
     data class ManifestNode(
         override val id: String,

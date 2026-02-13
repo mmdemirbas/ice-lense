@@ -14,11 +14,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import model.GraphModel
 import model.GraphNode
-import model.ManifestEntry
+import model.UnifiedTableModel
 import service.GraphLayoutService
-import service.IcebergReader
 import java.io.File
 import java.net.URI
+import java.nio.file.Paths
 import java.util.prefs.Preferences
 
 // Access native OS preferences for this package
@@ -28,6 +28,7 @@ private const val PREF_SHOW_ROWS = "show_data_rows"
 
 // Data class to hold cached table sessions
 data class TableSession(
+    val table: UnifiedTableModel,
     val graph: GraphModel,
     var selectedNodeId: String? = null,
 )
@@ -42,7 +43,6 @@ fun App() {
     var selectedTable by remember { mutableStateOf<String?>(null) }
     var graphModel by remember { mutableStateOf<GraphModel?>(null) }
     var selectedNode by remember { mutableStateOf<GraphNode?>(null) }
-    var tableData by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
 
     // Persistent Toggle State
@@ -87,66 +87,26 @@ fun App() {
     // Logic to load a specific table
     fun loadTable(tableName: String, withRows: Boolean = showRows) {
         if (warehousePath == null) return
-
         val cacheKey = "$tableName-rows_$withRows"
 
-        // 1. Check cache first
         if (sessionCache.containsKey(cacheKey)) {
             val session = sessionCache[cacheKey]!!
             graphModel = session.graph
             selectedTable = tableName
             selectedNode = session.graph.nodes.find { it.id == session.selectedNodeId }
-            tableData = emptyList()
             errorMsg = null
             return
         }
 
-        // 2. If no cache, perform heavy layout processing
         val path = "$warehousePath/$tableName"
-
         try {
-            val metaDir = File(path, "metadata")
-            val metaFile = metaDir
-                               .listFiles()
-                               ?.filter { it.name.endsWith(".metadata.json") }
-                               ?.maxByOrNull { it.name }
-                           ?: throw Exception("No metadata file found in $path/metadata")
+            val tableModel = UnifiedTableModel(Paths.get(path))
+            val newGraph = GraphLayoutService.layoutGraph(tableModel, withRows)
 
-            val metadata = IcebergReader.readTableMetadata(metaFile.absolutePath)
-
-            val loadedManifestLists = metadata.snapshots.associate {
-                it.snapshotId.toString() to IcebergReader.readManifestList(
-                    path + "/metadata/" + it.manifestList.orEmpty().substringAfterLast("/")
-                )
-            }
-
-            val loadedFiles = mutableMapOf<String, List<ManifestEntry>>()
-            loadedManifestLists.values.flatten().forEach { ml ->
-                try {
-                    val fPath =
-                        path + "/metadata/" + ml.manifestPath.orEmpty().substringAfterLast("/")
-                    loadedFiles[ml.manifestPath.orEmpty()] = IcebergReader.readManifestFile(fPath)
-                } catch (e: Exception) {
-                    println("Could not load manifest ${ml.manifestPath}: ${e.message}")
-                }
-            }
-
-            val newGraph = GraphLayoutService.layoutGraph(
-                metadata.snapshots,
-                loadedManifestLists,
-                loadedFiles,
-                warehousePath!!,
-                tableName,
-                withRows
-            )
-
-            // 3. Save to cache
-            sessionCache[cacheKey] = TableSession(newGraph, null)
-
+            sessionCache[cacheKey] = TableSession(tableModel, newGraph)
             graphModel = newGraph
             selectedTable = tableName
             selectedNode = null
-            tableData = emptyList() // Clear data grid on new table
             errorMsg = null
         } catch (e: Exception) {
             errorMsg = e.message
@@ -193,7 +153,6 @@ fun App() {
                 if (graphModel != null) {
                     GraphCanvas(graphModel!!, selectedNode) { node ->
                         selectedNode = node
-                        tableData = emptyList()
                     }
                 } else if (warehousePath != null && availableTables.isEmpty()) {
                     Text(
@@ -242,9 +201,25 @@ fun App() {
                     selectedNode?.let { node ->
                         Column {
                             when (node) {
+                                is GraphNode.MetadataNode -> {
+                                    Text("Metadata Node", fontSize = 12.sp)
+                                    Text("Format Version: ${node.data.formatVersion}")
+                                    Text("Table UUID: ${node.data.tableUuid}")
+                                    Text("Location: ${node.data.location}")
+                                    Text("Current Snapshot: ${node.data.currentSnapshotId}")
+                                    Text("Snapshot Count: ${node.data.snapshots.size}")
+                                }
+
                                 is GraphNode.SnapshotNode -> {
                                     Text("Snapshot ID: ${node.data.snapshotId}", fontSize = 12.sp)
+                                    Text(
+                                        "Parent Snapshot ID: ${node.data.parentSnapshotId}",
+                                        fontSize = 12.sp
+                                    )
                                     Text("Timestamp: ${node.data.timestampMs}", fontSize = 12.sp)
+                                    Text(
+                                        "Manifest List: ${node.data.manifestList}", fontSize = 12.sp
+                                    )
                                     Text(
                                         "Operation: ${node.data.summary["operation"]}",
                                         fontSize = 12.sp
@@ -303,14 +278,9 @@ fun App() {
                                                     throw Exception("Mapped file not found on host: ${localFile.absolutePath}")
                                                 }
 
-                                                val result =
-                                                    service.DuckDbService.queryParquet(localFile.absolutePath)
-
-                                                tableData = result
                                                 errorMsg = null
                                             } catch (e: Exception) {
                                                 errorMsg = "DuckDB Error: ${e.message}"
-                                                tableData = emptyList()
                                                 e.printStackTrace()
                                             }
                                         }
@@ -327,10 +297,6 @@ fun App() {
                                         Text("$k: $v", fontSize = 10.sp)
                                     }
                                 }
-
-                                else                      -> Text(
-                                    "Manifest List Node", fontSize = 12.sp
-                                )
                             }
                         }
                     } ?: Text(

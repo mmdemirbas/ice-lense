@@ -4,7 +4,7 @@ import java.io.File
 import java.sql.DriverManager
 import java.sql.ResultSet
 
-object DuckDbService {
+object ParquetReader {
 
     // Load JDBC driver
     init {

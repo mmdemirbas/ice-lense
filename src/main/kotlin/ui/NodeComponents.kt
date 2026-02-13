@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -18,19 +17,46 @@ import androidx.compose.ui.unit.sp
 import model.GraphNode
 
 fun getGraphNodeColor(node: GraphNode): Color = when (node) {
+    is GraphNode.MetadataNode     -> Color(0xFFE1BEE7) // Purple
     is GraphNode.SnapshotNode     -> Color(0xFFBBDEFB)
-    is GraphNode.ManifestListNode -> Color(0xFFFFCC80)
     is GraphNode.ManifestNode     -> Color(if (node.data.content == 1) 0xFFFFCDD2 else 0xFFC8E6C9)
-    is GraphNode.FileNode         -> Color(if ((node.data.content ?: 0) > 0) 0xFFEF9A9A else 0xFFE0F2F1)
+    is GraphNode.FileNode         -> Color(
+        if ((node.data.content ?: 0) > 0) 0xFFEF9A9A else 0xFFE0F2F1
+    )
+
     is GraphNode.RowNode          -> Color(0xFFFFF9C4)
 }
 
 fun getGraphNodeBorderColor(node: GraphNode): Color = when (node) {
+    is GraphNode.MetadataNode     -> Color(0xFF8E24AA)
     is GraphNode.SnapshotNode     -> Color(0xFF1976D2)
-    is GraphNode.ManifestListNode -> Color(0xFFF57C00)
     is GraphNode.ManifestNode     -> Color(if (node.data.content == 1) 0xFFD32F2F else 0xFF388E3C)
     is GraphNode.FileNode         -> Color.Gray
     is GraphNode.RowNode          -> Color(0xFFFBC02D)
+}
+
+@Composable
+fun MetadataCard(node: GraphNode.MetadataNode, onClick: (GraphNode) -> Unit) {
+    Box(
+        modifier = Modifier
+        .size(node.width.dp, node.height.dp)
+        .background(getGraphNodeColor(node), RoundedCornerShape(8.dp))
+        .border(BorderStroke(2.dp, getGraphNodeBorderColor(node)), RoundedCornerShape(8.dp))
+        .clickable { onClick(node) }
+        .padding(8.dp)) {
+        Column {
+            Text(
+                "METADATA FILE",
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.DarkGray
+            )
+            Text(node.fileName, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+            Text("Format V${node.data.formatVersion}", fontSize = 11.sp)
+            Text("Snapshots: ${node.data.snapshots.size}", fontSize = 11.sp)
+            Text("Current Snap: ${node.data.currentSnapshotId ?: "None"}", fontSize = 10.sp)
+        }
+    }
 }
 
 @Composable
@@ -47,19 +73,6 @@ fun SnapshotCard(node: GraphNode.SnapshotNode, onClick: (GraphNode) -> Unit) {
             Text("ID: ${node.data.snapshotId}", fontWeight = FontWeight.Bold)
             Text("Op: ${node.data.summary["operation"] ?: "unknown"}", fontSize = 12.sp)
         }
-    }
-}
-
-@Composable
-fun ManifestListCard(node: GraphNode.ManifestListNode, onClick: (GraphNode) -> Unit) {
-    Box(
-        modifier = Modifier
-        .size(node.width.dp, node.height.dp)
-        .background(Color(0xFFFFCC80), RoundedCornerShape(8.dp))
-        .border(BorderStroke(2.dp, Color(0xFFF57C00)), RoundedCornerShape(8.dp))
-        .clickable { onClick(node) }
-        .padding(8.dp), contentAlignment = Alignment.Center) {
-        Text("Manifest List", fontWeight = FontWeight.Bold)
     }
 }
 

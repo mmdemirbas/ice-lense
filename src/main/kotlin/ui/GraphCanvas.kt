@@ -103,16 +103,19 @@ fun GraphCanvas(
 
                     if (source != null && target != null) {
                         if (edge.isSibling) {
-                            // Sibling routing: Bottom-center of parent to Top-center of child
+                            // SIBLING ROUTING: Bottom center to Top center (Vertical Manhattan)
                             val startX = (source.x + source.width / 2).toFloat()
                             val startY = (source.y + source.height).toFloat()
                             val endX = (target.x + target.width / 2).toFloat()
                             val endY = target.y.toFloat()
+                            val midY = startY + (endY - startY) / 2f
 
                             path.moveTo(startX, startY)
-                            path.lineTo(endX, endY) // Straight vertical line
+                            path.lineTo(startX, midY)
+                            path.lineTo(endX, midY)
+                            path.lineTo(endX, endY)
                         } else {
-                            // Hierarchy routing: Right-center of parent to Left-center of child
+                            // HIERARCHY ROUTING: Right center to Left center (Horizontal Manhattan)
                             val startX = (source.x + source.width).toFloat()
                             val startY = (source.y + source.height / 2).toFloat()
                             val endX = target.x.toFloat()
@@ -143,8 +146,8 @@ fun GraphCanvas(
                         }
                     }) {
                     when (node) {
+                        is GraphNode.MetadataNode -> MetadataCard(node, onNodeClick)
                         is GraphNode.SnapshotNode -> SnapshotCard(node, onNodeClick)
-                        is GraphNode.ManifestListNode -> ManifestListCard(node, onNodeClick)
                         is GraphNode.ManifestNode -> ManifestCard(node, onNodeClick)
                         is GraphNode.FileNode -> FileCard(node, onNodeClick)
                         is GraphNode.RowNode -> RowCard(node, onNodeClick) // NEW

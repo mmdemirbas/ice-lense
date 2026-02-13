@@ -106,8 +106,8 @@ private fun flattenGraph(graph: GraphModel): List<Pair<GraphNode, Int>> {
 
 private fun getNodeLabel(node: GraphNode): String {
     return when (node) {
+        is GraphNode.MetadataNode -> "Meta: ${node.fileName}"
         is GraphNode.SnapshotNode -> "Snap: ${node.data.snapshotId}"
-        is GraphNode.ManifestListNode -> "Manifest List"
         is GraphNode.ManifestNode -> "Manifest (${node.data.addedDataFilesCount} adds)"
         is GraphNode.FileNode -> "File: ${node.data.filePath?.substringAfterLast("/")}"
         is GraphNode.RowNode -> "Row: ${node.data.values.firstOrNull() ?: "..."}" // NEW

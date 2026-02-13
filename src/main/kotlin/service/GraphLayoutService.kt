@@ -4,13 +4,16 @@ import model.*
 import org.eclipse.elk.alg.layered.options.LayeredMetaDataProvider
 import org.eclipse.elk.core.RecursiveGraphLayoutEngine
 import org.eclipse.elk.core.data.LayoutMetaDataService
+import org.eclipse.elk.core.math.KVector
 import org.eclipse.elk.core.options.CoreOptions
 import org.eclipse.elk.core.options.Direction
+import org.eclipse.elk.core.options.SizeConstraint
 import org.eclipse.elk.core.util.BasicProgressMonitor
 import org.eclipse.elk.graph.ElkNode
 import org.eclipse.elk.graph.util.ElkGraphUtil
 import java.io.File
 import java.net.URI
+import java.util.*
 
 object GraphLayoutService {
 
@@ -21,108 +24,123 @@ object GraphLayoutService {
             .registerLayoutMetaDataProviders(LayeredMetaDataProvider())
     }
 
-    fun layoutGraph(
-        snapshots: List<Snapshot>,
-        loadedManifestLists: Map<String, List<ManifestListEntry>>, // Map snapshotId -> Manifests
-        loadedFiles: Map<String, List<ManifestEntry>>, // Map manifestPath -> Entries
-        warehousePath: String,
-        tableName: String,
-        showRows: Boolean,
-    ): GraphModel {
-
+    fun layoutGraph(tableModel: UnifiedTableModel, showRows: Boolean): GraphModel {
         val root = ElkGraphUtil.createGraph()
 
         // 1. Shift to Rightward Flow and enforce column spacing
         root.setProperty(CoreOptions.ALGORITHM, "org.eclipse.elk.layered")
         root.setProperty(CoreOptions.DIRECTION, Direction.RIGHT)
         root.setProperty(CoreOptions.SPACING_NODE_NODE, 100.0)
+        root.setProperty(
+            org.eclipse.elk.alg.layered.options.LayeredOptions.SPACING_NODE_NODE_BETWEEN_LAYERS,
+            100.0
+        )
 
         val elkNodes = mutableMapOf<String, ElkNode>()
         val logicalNodes = mutableMapOf<String, GraphNode>()
         val edges = mutableListOf<GraphEdge>()
 
-        snapshots.sortedBy { it.timestampMs }.forEach { snap ->
-            val sId = "snap_${snap.snapshotId}"
-            elkNodes[sId] = createElkNode(root, sId, 220.0, 100.0)
-            logicalNodes[sId] = GraphNode.SnapshotNode(sId, snap)
+        // 1. COLUMN 1: Lineage of Metadata Files
+        var prevMetaId: String? = null
+        tableModel.metadatas.forEach { metadata ->
+            val fileName = metadata.path.fileName.toString()
+            val meta = metadata.metadata
+            val mId = "meta_${fileName}"
+            elkNodes[mId] = createElkNode(root, mId, 260.0, 120.0)
 
-            // 2. Add sibling edge to logical model ONLY. Do not pass to ELK.
-            // This treats each snapshot as an independent tree root, forcing them all into Column 1.
-            if (snap.parentSnapshotId != null) {
-                val pId = "snap_${snap.parentSnapshotId}"
-                if (elkNodes.containsKey(pId)) {
-                    edges.add(GraphEdge("e_$sId", pId, sId, isSibling = true))
-                }
+            logicalNodes[mId] = GraphNode.MetadataNode(mId, fileName, meta)
+
+            // Timeline Sibling Edge (Top to Bottom)
+            if (prevMetaId != null) {
+                edges.add(GraphEdge("e_${prevMetaId}_to_$mId", prevMetaId!!, mId, isSibling = true))
+            }
+            prevMetaId = mId
+
+            // Hierarchy Edge to the Current Snapshot of this metadata version (Column 1 -> Column 2)
+            if (meta.currentSnapshotId != null) {
+                val sId = "snap_${meta.currentSnapshotId}"
+                edges.add(GraphEdge("e_meta_to_snap_$mId", mId, sId, isSibling = false))
             }
 
-            val mlId = "ml_${snap.snapshotId}"
-            elkNodes[mlId] = createElkNode(root, mlId, 180.0, 60.0)
-            logicalNodes[mlId] = GraphNode.ManifestListNode(mlId, snap.manifestList.orEmpty())
+            metadata.snapshots.forEach { snapshot ->
+                val snap = snapshot.metadata
+                val sId = "snap_${snap.snapshotId}"
+                elkNodes[sId] = createElkNode(root, sId, 220.0, 100.0)
+                logicalNodes[sId] = GraphNode.SnapshotNode(sId, snap)
 
-            // 3. Add hierarchy edges to ELK normally
-            ElkGraphUtil.createSimpleEdge(elkNodes[sId], elkNodes[mlId])
-            edges.add(GraphEdge("e_ml_$sId", sId, mlId, isSibling = false))
+                // Snapshot Timeline Sibling Edge (Top to Bottom)
+                if (snap.parentSnapshotId != null) {
+                    val pId = "snap_${snap.parentSnapshotId}"
+                    if (elkNodes.containsKey(pId)) {
+                        edges.add(GraphEdge("e_$sId", pId, sId, isSibling = true))
+                    }
+                }
 
-            val manifests = loadedManifestLists[snap.snapshotId.toString()] ?: emptyList()
+                // 4. COLUMN 4: Manifest Files
+                val manifests = snapshot.manifestLists
+                manifests.forEachIndexed { idx, unifiedManifest ->
+                    val manifest = unifiedManifest.metadata
+                    val mId = "man_${snap.snapshotId}_$idx"
+                    elkNodes[mId] = createElkNode(root, mId, 200.0, 80.0)
+                    logicalNodes[mId] = GraphNode.ManifestNode(mId, manifest)
 
-            manifests.forEachIndexed { idx, manifest ->
-                val mId = "man_${snap.snapshotId}_$idx"
-                elkNodes[mId] = createElkNode(root, mId, 200.0, 80.0)
-                logicalNodes[mId] = GraphNode.ManifestNode(mId, manifest)
-                ElkGraphUtil.createSimpleEdge(elkNodes[mlId], elkNodes[mId])
-                edges.add(GraphEdge("e_man_$mId", mlId, mId, isSibling = false))
+                    // Hierarchy Edge (Column 3 -> Column 4)
+                    ElkGraphUtil.createSimpleEdge(elkNodes[sId], elkNodes[mId])
+                    edges.add(GraphEdge("e_man_$mId", sId, mId, isSibling = false))
 
-                val manifestPath = manifest.manifestPath
-                if (manifestPath != null) {
-                    val fileEntries = loadedFiles[manifestPath] ?: emptyList()
+                    // 5. COLUMN 5: Data/Delete Files
+                    val manifestPath = manifest.manifestPath
+                    if (manifestPath != null) {
+                        val unifiedDataFiles = unifiedManifest.manifests
+                        unifiedDataFiles.take(10).forEachIndexed { fIdx, unifiedDataFile ->
+                            val entry = unifiedDataFile.metadata
+                            val fId = "file_${mId}_$fIdx"
+                            elkNodes[fId] = createElkNode(root, fId, 200.0, 60.0)
+                            val dataFile = entry.dataFile ?: DataFile(filePath = "unknown")
+                            logicalNodes[fId] = GraphNode.FileNode(fId, dataFile)
 
-                    fileEntries.take(10).forEachIndexed { fIdx, entry ->
-                        val fId = "file_${mId}_$fIdx"
-                        elkNodes[fId] = createElkNode(root, fId, 200.0, 60.0)
+                            // Hierarchy Edge (Column 4 -> Column 5)
+                            ElkGraphUtil.createSimpleEdge(elkNodes[mId], elkNodes[fId])
+                            edges.add(GraphEdge("e_file_$fId", mId, fId, isSibling = false))
 
-                        val dataFile = entry.dataFile ?: DataFile(filePath = "unknown")
-                        logicalNodes[fId] = GraphNode.FileNode(fId, dataFile)
+                            // 6. COLUMN 6: Row Data
+                            if (showRows) {
+                                val rawPath = dataFile.filePath.orEmpty()
+                                val pathWithoutScheme =
+                                    if (rawPath.startsWith("file:")) URI(rawPath).path else rawPath
+                                val tableMarker = "/${tableModel.name}/"
 
-                        ElkGraphUtil.createSimpleEdge(elkNodes[mId], elkNodes[fId])
-                        edges.add(GraphEdge("e_file_$fId", mId, fId, isSibling = false))
+                                val localFile = if (pathWithoutScheme.contains(tableMarker)) {
+                                    val relativePart = pathWithoutScheme.substringAfter(tableMarker)
+                                    File("${tableModel.path}/$relativePart")
+                                } else {
+                                    File(pathWithoutScheme)
+                                }
 
-                        // --- ROW EXTRACTION LOGIC ---
-                        if (showRows) {
-                            val rawPath = dataFile.filePath.orEmpty()
+                                if (localFile.exists()) {
+                                    try {
+                                        unifiedDataFile.rows
+                                            .take(5)
+                                            .forEachIndexed { rIdx, rowData ->
+                                                val rId = "row_${fId}_$rIdx"
+                                                elkNodes[rId] =
+                                                    createElkNode(root, rId, 200.0, 80.0)
+                                                logicalNodes[rId] =
+                                                    GraphNode.RowNode(rId, rowData.cells)
 
-                            // Safe URI stripping to match App.kt logic
-                            val pathWithoutScheme = if (rawPath.startsWith("file:")) {
-                                URI(rawPath).path
-                            } else {
-                                rawPath
-                            }
-
-                            val tableMarker = "/$tableName/"
-
-                            val localFile = if (pathWithoutScheme.contains(tableMarker)) {
-                                val relativePart = pathWithoutScheme.substringAfter(tableMarker)
-                                File("$warehousePath/$tableName/$relativePart")
-                            } else {
-                                File(pathWithoutScheme)
-                            }
-
-                            if (localFile.exists()) {
-                                try {
-                                    val rows = DuckDbService.queryParquet(localFile.canonicalPath)
-                                    // Safety limit: 5 rows max
-                                    rows.take(5).forEachIndexed { rIdx, rowData ->
-                                        val rId = "row_${fId}_$rIdx"
-                                        elkNodes[rId] = createElkNode(root, rId, 200.0, 80.0)
-                                        logicalNodes[rId] = GraphNode.RowNode(rId, rowData)
-                                        ElkGraphUtil.createSimpleEdge(elkNodes[fId], elkNodes[rId])
-                                        edges.add(
-                                            GraphEdge(
-                                                "e_row_$rId", fId, rId, isSibling = false
-                                            )
-                                        )
+                                                // Hierarchy Edge (Column 5 -> Column 6)
+                                                ElkGraphUtil.createSimpleEdge(
+                                                    elkNodes[fId], elkNodes[rId]
+                                                )
+                                                edges.add(
+                                                    GraphEdge(
+                                                        "e_row_$rId", fId, rId, isSibling = false
+                                                    )
+                                                )
+                                            }
+                                    } catch (e: Exception) {
+                                        println("DuckDB Graph Read Error: ${e.message}")
                                     }
-                                } catch (e: Exception) {
-                                    println("DuckDB Graph Read Error: ${e.message}")
                                 }
                             }
                         }
@@ -151,6 +169,11 @@ object GraphLayoutService {
     private fun createElkNode(parent: ElkNode, id: String, w: Double, h: Double): ElkNode {
         val node = ElkGraphUtil.createNode(parent)
         node.identifier = id
+
+        // Lock the dimensions so ELK reserves the exact bounding box size during routing
+        node.setProperty(CoreOptions.NODE_SIZE_CONSTRAINTS, EnumSet.of(SizeConstraint.MINIMUM_SIZE))
+        node.setProperty(CoreOptions.NODE_SIZE_MINIMUM, KVector(w, h))
+
         node.width = w
         node.height = h
         return node
