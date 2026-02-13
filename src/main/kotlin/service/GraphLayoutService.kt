@@ -6,13 +6,11 @@ import org.eclipse.elk.core.RecursiveGraphLayoutEngine
 import org.eclipse.elk.core.data.LayoutMetaDataService
 import org.eclipse.elk.core.options.CoreOptions
 import org.eclipse.elk.core.options.Direction
-import org.eclipse.elk.core.options.SizeConstraint
 import org.eclipse.elk.core.util.BasicProgressMonitor
 import org.eclipse.elk.graph.ElkNode
 import org.eclipse.elk.graph.util.ElkGraphUtil
 import java.io.File
 import java.net.URI
-import java.util.*
 
 object GraphLayoutService {
 
@@ -34,42 +32,37 @@ object GraphLayoutService {
 
         val root = ElkGraphUtil.createGraph()
 
-        // 1. Core Algorithm Setup
+        // 1. Shift to Rightward Flow and enforce column spacing
         root.setProperty(CoreOptions.ALGORITHM, "org.eclipse.elk.layered")
         root.setProperty(CoreOptions.DIRECTION, Direction.RIGHT)
+        root.setProperty(CoreOptions.SPACING_NODE_NODE, 100.0)
 
-        // 2. Eradicate Overlaps by enforcing Layer Spacing and standard polyline routing
-        root.setProperty(CoreOptions.SPACING_NODE_NODE, 40.0) // Vertical padding between siblings
-
-        // Maps to keep track of ELK nodes and actual Data Nodes
         val elkNodes = mutableMapOf<String, ElkNode>()
         val logicalNodes = mutableMapOf<String, GraphNode>()
         val edges = mutableListOf<GraphEdge>()
 
-        // 1. Create Snapshot Nodes (The Backbone)
         snapshots.sortedBy { it.timestampMs }.forEach { snap ->
             val sId = "snap_${snap.snapshotId}"
             elkNodes[sId] = createElkNode(root, sId, 220.0, 100.0)
             logicalNodes[sId] = GraphNode.SnapshotNode(sId, snap)
 
-            // Link to parent
+            // 2. Add sibling edge to logical model ONLY. Do not pass to ELK.
+            // This treats each snapshot as an independent tree root, forcing them all into Column 1.
             if (snap.parentSnapshotId != null) {
                 val pId = "snap_${snap.parentSnapshotId}"
                 if (elkNodes.containsKey(pId)) {
-                    ElkGraphUtil.createSimpleEdge(elkNodes[pId], elkNodes[sId])
-                    edges.add(GraphEdge("e_$sId", pId, sId))
+                    edges.add(GraphEdge("e_$sId", pId, sId, isSibling = true))
                 }
             }
 
-            // 2. Create Manifest List Node (One per snapshot)
             val mlId = "ml_${snap.snapshotId}"
             elkNodes[mlId] = createElkNode(root, mlId, 180.0, 60.0)
             logicalNodes[mlId] = GraphNode.ManifestListNode(mlId, snap.manifestList.orEmpty())
-            ElkGraphUtil.createSimpleEdge(elkNodes[sId], elkNodes[mlId])
-            edges.add(GraphEdge("e_ml_$sId", sId, mlId))
 
-            // 3. Create Manifest Nodes
-            // Filter to only manifests belonging to this snapshot
+            // 3. Add hierarchy edges to ELK normally
+            ElkGraphUtil.createSimpleEdge(elkNodes[sId], elkNodes[mlId])
+            edges.add(GraphEdge("e_ml_$sId", sId, mlId, isSibling = false))
+
             val manifests = loadedManifestLists[snap.snapshotId.toString()] ?: emptyList()
 
             manifests.forEachIndexed { idx, manifest ->
@@ -77,24 +70,21 @@ object GraphLayoutService {
                 elkNodes[mId] = createElkNode(root, mId, 200.0, 80.0)
                 logicalNodes[mId] = GraphNode.ManifestNode(mId, manifest)
                 ElkGraphUtil.createSimpleEdge(elkNodes[mlId], elkNodes[mId])
-                edges.add(GraphEdge("e_man_$mId", mlId, mId))
+                edges.add(GraphEdge("e_man_$mId", mlId, mId, isSibling = false))
 
-                // 4. Create File Nodes
                 val manifestPath = manifest.manifestPath
                 if (manifestPath != null) {
                     val fileEntries = loadedFiles[manifestPath] ?: emptyList()
 
-                    // Limit visual clutter: only show first 10 files if too many
                     fileEntries.take(10).forEachIndexed { fIdx, entry ->
                         val fId = "file_${mId}_$fIdx"
                         elkNodes[fId] = createElkNode(root, fId, 200.0, 60.0)
 
-                        // Safely extract DataFile and inject into logical node
                         val dataFile = entry.dataFile ?: DataFile(filePath = "unknown")
                         logicalNodes[fId] = GraphNode.FileNode(fId, dataFile)
 
                         ElkGraphUtil.createSimpleEdge(elkNodes[mId], elkNodes[fId])
-                        edges.add(GraphEdge("e_file_$fId", mId, fId))
+                        edges.add(GraphEdge("e_file_$fId", mId, fId, isSibling = false))
 
                         // --- ROW EXTRACTION LOGIC ---
                         if (showRows) {
@@ -125,7 +115,11 @@ object GraphLayoutService {
                                         elkNodes[rId] = createElkNode(root, rId, 200.0, 80.0)
                                         logicalNodes[rId] = GraphNode.RowNode(rId, rowData)
                                         ElkGraphUtil.createSimpleEdge(elkNodes[fId], elkNodes[rId])
-                                        edges.add(GraphEdge("e_row_$rId", fId, rId))
+                                        edges.add(
+                                            GraphEdge(
+                                                "e_row_$rId", fId, rId, isSibling = false
+                                            )
+                                        )
                                     }
                                 } catch (e: Exception) {
                                     println("DuckDB Graph Read Error: ${e.message}")

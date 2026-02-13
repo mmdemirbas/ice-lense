@@ -62,7 +62,7 @@ data class GraphEdge(
     val id: String,
     val fromId: String,
     val toId: String,
-    // Calculated route points from ELK
+    val isSibling: Boolean = false,
     val sections: List<EdgeSection> = emptyList(),
 )
 

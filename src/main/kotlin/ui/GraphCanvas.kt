@@ -102,16 +102,30 @@ fun GraphCanvas(
                     val target = graph.nodes.find { it.id == edge.toId }
 
                     if (source != null && target != null) {
-                        val startX = (source.x + source.width / 2).toFloat()
-                        val startY = (source.y + source.height).toFloat()
-                        val endX = (target.x + target.width / 2).toFloat()
-                        val endY = target.y.toFloat()
-                        val midY = startY + (endY - startY) / 2f
+                        if (edge.isSibling) {
+                            // Sibling routing: Bottom-center of parent to Top-center of child
+                            val startX = (source.x + source.width / 2).toFloat()
+                            val startY = (source.y + source.height).toFloat()
+                            val endX = (target.x + target.width / 2).toFloat()
+                            val endY = target.y.toFloat()
 
-                        path.moveTo(startX, startY)
-                        path.lineTo(startX, midY)
-                        path.lineTo(endX, midY)
-                        path.lineTo(endX, endY)
+                            path.moveTo(startX, startY)
+                            path.lineTo(endX, endY) // Straight vertical line
+                        } else {
+                            // Hierarchy routing: Right-center of parent to Left-center of child
+                            val startX = (source.x + source.width).toFloat()
+                            val startY = (source.y + source.height / 2).toFloat()
+                            val endX = target.x.toFloat()
+                            val endY = (target.y + target.height / 2).toFloat()
+
+                            // Calculate midpoint for Manhattan right-angles
+                            val midX = startX + (endX - startX) / 2f
+
+                            path.moveTo(startX, startY)
+                            path.lineTo(midX, startY)
+                            path.lineTo(midX, endY)
+                            path.lineTo(endX, endY)
+                        }
                     }
                 }
                 drawPath(path, Color.Black, style = Stroke(width = 2f))
@@ -157,8 +171,7 @@ fun GraphCanvas(
                         coroutineScope.launch {
                             offsetAnim.snapTo(
                                 offsetAnim.value - Offset(
-                                    dragAmount.x / mapScale * zoom,
-                                    dragAmount.y / mapScale * zoom
+                                    dragAmount.x / mapScale * zoom, dragAmount.y / mapScale * zoom
                                 )
                             )
                         }
