@@ -55,7 +55,7 @@ sealed class GraphNode(
         val data: Map<String, Any>,
         val initialX: Double = 0.0,
         val initialY: Double = 0.0,
-    ) : GraphNode(id, initialX, initialY, 160.0, 40.0)
+    ) : GraphNode(id, initialX, initialY, 250.0, 40.0)
 }
 
 data class GraphEdge(

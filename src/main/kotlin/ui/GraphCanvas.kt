@@ -32,7 +32,7 @@ fun GraphCanvas(
 ) {
     var zoom by remember { mutableStateOf(1f) }
     // 2. Use Animatable for smooth panning
-    val offsetAnim = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
+    val offsetAnim = remember { Animatable(Offset(100f, 100f), Offset.VectorConverter) }
     val coroutineScope = rememberCoroutineScope()
 
     // 3. Use BoxWithConstraints to know viewport dimensions

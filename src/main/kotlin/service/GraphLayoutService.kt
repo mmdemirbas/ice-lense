@@ -36,11 +36,11 @@ object GraphLayoutService {
 
         // Configure Layout: Top-Down, Orthogonal Routing with Strict Sizing and Increased Padding
         root.setProperty(CoreOptions.ALGORITHM, "org.eclipse.elk.layered")
-        root.setProperty(CoreOptions.DIRECTION, Direction.DOWN)
+        root.setProperty(CoreOptions.DIRECTION, Direction.RIGHT)
 
         // INCREASE THESE VALUES significantly to prevent visual overlap
-        root.setProperty(CoreOptions.SPACING_NODE_NODE, 100.0)
-        root.setProperty(CoreOptions.SPACING_EDGE_NODE, 60.0)
+        root.setProperty(CoreOptions.SPACING_NODE_NODE, 40.0)
+        root.setProperty(CoreOptions.SPACING_EDGE_NODE, 40.0)
 
         root.setProperty(CoreOptions.NODE_SIZE_CONSTRAINTS, EnumSet.of(SizeConstraint.MINIMUM_SIZE))
         root.setProperty(
@@ -128,7 +128,7 @@ object GraphLayoutService {
                                     // Safety limit: 5 rows max
                                     rows.take(5).forEachIndexed { rIdx, rowData ->
                                         val rId = "row_${fId}_$rIdx"
-                                        elkNodes[rId] = createElkNode(root, rId, 160.0, 40.0)
+                                        elkNodes[rId] = createElkNode(root, rId, 250.0, 40.0)
                                         logicalNodes[rId] = GraphNode.RowNode(rId, rowData)
                                         ElkGraphUtil.createSimpleEdge(elkNodes[fId], elkNodes[rId])
                                         edges.add(GraphEdge("e_row_$rId", fId, rId))
