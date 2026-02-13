@@ -10,12 +10,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import model.GraphModel
 import model.GraphNode
 import model.ManifestEntry
 import service.GraphLayoutService
 import service.IcebergReader
 import java.io.File
+import java.net.URI
 import java.util.prefs.Preferences
 
 // Access native OS preferences for this package
@@ -34,6 +37,12 @@ fun App() {
     var selectedNode by remember { mutableStateOf<GraphNode?>(null) }
     var tableData by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
+
+    // Toggle State
+    var showRows by remember { mutableStateOf(false) }
+
+    // Coroutine scope for async DB queries
+    val coroutineScope = rememberCoroutineScope()
 
     // Logic to scan a warehouse for valid Iceberg tables
     fun scanWarehouse(path: String) {
@@ -66,7 +75,7 @@ fun App() {
     }
 
     // Logic to load a specific table
-    fun loadTable(tableName: String) {
+    fun loadTable(tableName: String, withRows: Boolean = showRows) {
         if (warehousePath == null) return
         val path = "$warehousePath/$tableName"
 
@@ -97,10 +106,17 @@ fun App() {
                 }
             }
 
-            graphModel =
-                GraphLayoutService.layoutGraph(metadata.snapshots, loadedManifestLists, loadedFiles)
+            graphModel = GraphLayoutService.layoutGraph(
+                metadata.snapshots,
+                loadedManifestLists,
+                loadedFiles,
+                warehousePath!!,
+                tableName,
+                withRows
+            )
             selectedTable = tableName
             selectedNode = null
+            tableData = emptyList() // Clear data grid on new table
             errorMsg = null
         } catch (e: Exception) {
             errorMsg = e.message
@@ -118,6 +134,13 @@ fun App() {
                     warehousePath = warehousePath,
                     tables = availableTables,
                     selectedTable = selectedTable,
+                    showRows = showRows, // NEW
+                    onShowRowsChange = {
+                        showRows = it
+                        if (selectedTable != null) loadTable(
+                            selectedTable!!, it
+                        ) // Reload graph on toggle
+                    },
                     onTableSelect = { loadTable(it) },
                     onWarehouseChange = { newPath ->
                         warehousePath = newPath
@@ -133,6 +156,7 @@ fun App() {
                 if (graphModel != null) {
                     GraphCanvas(graphModel!!, selectedNode) { node ->
                         selectedNode = node
+                        tableData = emptyList()
                     }
                 } else if (warehousePath != null && availableTables.isEmpty()) {
                     Text(
@@ -210,8 +234,60 @@ fun App() {
                                     Text("${node.data.filePath}", fontSize = 10.sp)
                                     Text("Rows: ${node.data.recordCount}", fontSize = 12.sp)
                                     Spacer(Modifier.height(8.dp))
-                                    Button(onClick = { /* DuckDB Logic */ }) {
+
+                                    Button(onClick = {
+                                        coroutineScope.launch(Dispatchers.IO) {
+                                            try {
+                                                val rawPath = node.data.filePath.orEmpty()
+
+                                                // 1. Strip URI scheme if present (e.g., "file://")
+                                                val pathWithoutScheme =
+                                                    if (rawPath.startsWith("file:")) {
+                                                        URI(rawPath).path
+                                                    } else {
+                                                        rawPath
+                                                    }
+
+                                                // 2. Rebase path from Container OS to Host OS
+                                                val tableMarker = "/$selectedTable/"
+                                                val localFile =
+                                                    if (pathWithoutScheme.contains(tableMarker) && warehousePath != null) {
+                                                        val relativePart =
+                                                            pathWithoutScheme.substringAfter(
+                                                                tableMarker
+                                                            )
+                                                        File("$warehousePath/$selectedTable/$relativePart")
+                                                    } else {
+                                                        File(pathWithoutScheme)
+                                                    }
+
+                                                // 3. Validate existence before passing to DuckDB
+                                                if (!localFile.exists()) {
+                                                    throw Exception("Mapped file not found on host: ${localFile.absolutePath}")
+                                                }
+
+                                                val result =
+                                                    service.DuckDbService.queryParquet(localFile.absolutePath)
+
+                                                tableData = result
+                                                errorMsg = null
+                                            } catch (e: Exception) {
+                                                errorMsg = "DuckDB Error: ${e.message}"
+                                                tableData = emptyList()
+                                                e.printStackTrace()
+                                            }
+                                        }
+                                    }) {
                                         Text("Preview Data", fontSize = 12.sp)
+                                    }
+                                }
+
+                                is GraphNode.RowNode      -> {
+                                    Text(
+                                        "Row Data:", fontSize = 12.sp, fontWeight = FontWeight.Bold
+                                    )
+                                    node.data.forEach { (k, v) ->
+                                        Text("$k: $v", fontSize = 10.sp)
                                     }
                                 }
 

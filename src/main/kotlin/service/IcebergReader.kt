@@ -1,3 +1,5 @@
+@file:OptIn(com.github.avrokotlin.avro4k.ExperimentalAvro4kApi::class)
+
 package service
 
 import com.github.avrokotlin.avro4k.Avro

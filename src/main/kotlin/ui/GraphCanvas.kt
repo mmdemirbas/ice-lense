@@ -28,7 +28,7 @@ import model.GraphNode
 fun GraphCanvas(
     graph: GraphModel,
     selectedNode: GraphNode?, // 1. Pass selected node to canvas
-    onNodeClick: (GraphNode) -> Unit
+    onNodeClick: (GraphNode) -> Unit,
 ) {
     var zoom by remember { mutableStateOf(1f) }
     // 2. Use Animatable for smooth panning
@@ -38,31 +38,34 @@ fun GraphCanvas(
     // 3. Use BoxWithConstraints to know viewport dimensions
     BoxWithConstraints(
         modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0xFFE0E0E0))
-            .pointerInput(Unit) {
-                detectTransformGestures { _, pan, gestureZoom, _ ->
-                    zoom = (zoom * gestureZoom).coerceIn(0.1f, 3f)
-                    coroutineScope.launch {
-                        offsetAnim.snapTo(offsetAnim.value + pan)
-                    }
+        .fillMaxSize()
+        .background(Color(0xFFE0E0E0))
+        .pointerInput(Unit) {
+            detectTransformGestures { _, pan, gestureZoom, _ ->
+                zoom = (zoom * gestureZoom).coerceIn(0.1f, 3f)
+                coroutineScope.launch {
+                    offsetAnim.snapTo(offsetAnim.value + pan)
                 }
             }
-            .pointerInput(Unit) {
-                awaitPointerEventScope {
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        if (event.type == PointerEventType.Scroll) {
-                            val delta = event.changes.first().scrollDelta
-                            coroutineScope.launch {
-                                offsetAnim.snapTo(offsetAnim.value - Offset(delta.x * 20f, delta.y * 20f))
-                            }
-                            event.changes.forEach { it.consume() }
+        }
+        .pointerInput(Unit) {
+            awaitPointerEventScope {
+                while (true) {
+                    val event = awaitPointerEvent()
+                    if (event.type == PointerEventType.Scroll) {
+                        val delta = event.changes.first().scrollDelta
+                        coroutineScope.launch {
+                            offsetAnim.snapTo(
+                                offsetAnim.value - Offset(
+                                    delta.x * 20f, delta.y * 20f
+                                )
+                            )
                         }
+                        event.changes.forEach { it.consume() }
                     }
                 }
             }
-    ) {
+        }) {
         val viewportWidth = constraints.maxWidth.toFloat()
         val viewportHeight = constraints.maxHeight.toFloat()
 
@@ -82,15 +85,12 @@ fun GraphCanvas(
         }
 
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    scaleX = zoom
-                    scaleY = zoom
-                    translationX = offsetAnim.value.x
-                    translationY = offsetAnim.value.y
-                }
-        ) {
+            modifier = Modifier.fillMaxSize().graphicsLayer {
+                scaleX = zoom
+                scaleY = zoom
+                translationX = offsetAnim.value.x
+                translationY = offsetAnim.value.y
+            }) {
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val path = Path()
                 graph.edges.forEach { edge ->
@@ -116,20 +116,20 @@ fun GraphCanvas(
             graph.nodes.forEach { node ->
                 Box(
                     modifier = Modifier
-                        .offset { IntOffset(node.x.toInt(), node.y.toInt()) }
-                        .pointerInput(node.id) {
-                            detectDragGestures { change, dragAmount ->
-                                change.consume()
-                                node.x += dragAmount.x / zoom
-                                node.y += dragAmount.y / zoom
-                            }
+                    .offset { IntOffset(node.x.toInt(), node.y.toInt()) }
+                    .pointerInput(node.id) {
+                        detectDragGestures { change, dragAmount ->
+                            change.consume()
+                            node.x += dragAmount.x / zoom
+                            node.y += dragAmount.y / zoom
                         }
-                ) {
+                    }) {
                     when (node) {
                         is GraphNode.SnapshotNode -> SnapshotCard(node, onNodeClick)
                         is GraphNode.ManifestListNode -> ManifestListCard(node, onNodeClick)
                         is GraphNode.ManifestNode -> ManifestCard(node, onNodeClick)
                         is GraphNode.FileNode -> FileCard(node, onNodeClick)
+                        is GraphNode.RowNode -> RowCard(node, onNodeClick) // NEW
                     }
                 }
             }

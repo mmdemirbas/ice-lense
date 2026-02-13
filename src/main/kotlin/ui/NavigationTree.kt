@@ -2,7 +2,10 @@ package ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -23,7 +26,7 @@ import model.GraphNode
 fun NavigationTree(
     graph: GraphModel,
     selectedNode: GraphNode?,
-    onNodeSelect: (GraphNode) -> Unit
+    onNodeSelect: (GraphNode) -> Unit,
 ) {
     // Flatten DAG into a list of (Node to Depth) for LazyColumn
     val flattenedTree = remember(graph) { flattenGraph(graph) }
@@ -48,11 +51,11 @@ fun NavigationTree(
 
             Row(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .background(bgColor)
-                    .clickable { onNodeSelect(node) }
-                    .padding(vertical = 4.dp, horizontal = 8.dp)
-                    .padding(start = (depth * 16).dp) // Indentation based on depth
+                .fillMaxWidth()
+                .background(bgColor)
+                .clickable { onNodeSelect(node) }
+                .padding(vertical = 4.dp, horizontal = 8.dp)
+                .padding(start = (depth * 16).dp) // Indentation based on depth
             ) {
                 Text(
                     text = getNodeLabel(node),
@@ -93,5 +96,6 @@ private fun getNodeLabel(node: GraphNode): String {
         is GraphNode.ManifestListNode -> "Manifest List"
         is GraphNode.ManifestNode -> "Manifest (${node.data.addedDataFilesCount} adds)"
         is GraphNode.FileNode -> "File: ${node.data.filePath?.substringAfterLast("/")}"
+        is GraphNode.RowNode -> "Row: ${node.data.values.firstOrNull() ?: "..."}" // NEW
     }
 }

@@ -49,6 +49,13 @@ sealed class GraphNode(
         val initialX: Double = 0.0,
         val initialY: Double = 0.0,
     ) : GraphNode(id, initialX, initialY, 200.0, 60.0)
+
+    data class RowNode(
+        override val id: String,
+        val data: Map<String, Any>,
+        val initialX: Double = 0.0,
+        val initialY: Double = 0.0,
+    ) : GraphNode(id, initialX, initialY, 160.0, 40.0)
 }
 
 data class GraphEdge(
@@ -59,4 +66,9 @@ data class GraphEdge(
     val sections: List<EdgeSection> = emptyList(),
 )
 
-data class EdgeSection(val startX: Double, val startY: Double, val endX: Double, val endY: Double)
+data class EdgeSection(
+    val startX: Double,
+    val startY: Double,
+    val endX: Double,
+    val endY: Double,
+)

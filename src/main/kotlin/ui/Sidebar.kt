@@ -6,9 +6,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -22,6 +24,8 @@ fun Sidebar(
     warehousePath: String?,
     tables: List<String>,
     selectedTable: String?,
+    showRows: Boolean,
+    onShowRowsChange: (Boolean) -> Unit,
     onTableSelect: (String) -> Unit,
     onWarehouseChange: (String) -> Unit,
 ) {
@@ -46,6 +50,14 @@ fun Sidebar(
         }
 
         Spacer(modifier = Modifier.height(16.dp))
+
+        // Toggle for debug rows
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(checked = showRows, onCheckedChange = onShowRowsChange)
+            Text("Show Data Rows (Debug)", fontSize = 11.sp, color = Color.DarkGray)
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
 
         if (warehousePath != null) {
             Text(

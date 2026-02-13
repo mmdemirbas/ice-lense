@@ -97,3 +97,26 @@ fun FileCard(node: GraphNode.FileNode, onClick: (GraphNode) -> Unit) {
         }
     }
 }
+
+@Composable
+fun RowCard(node: GraphNode.RowNode, onClick: (GraphNode) -> Unit) {
+    Box(
+        modifier = Modifier
+        .size(node.width.dp, node.height.dp)
+        .background(Color(0xFFFFF9C4), RoundedCornerShape(4.dp))
+        .border(1.dp, Color(0xFFFBC02D), RoundedCornerShape(4.dp))
+        .clickable { onClick(node) }
+        .padding(4.dp)) {
+        // Preview the first few values as a string
+        val previewText = node.data.values.joinToString(", ")
+        Column {
+            Text("DATA ROW", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = Color.DarkGray)
+            Text(
+                text = previewText,
+                fontSize = 9.sp,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+            )
+        }
+    }
+}
