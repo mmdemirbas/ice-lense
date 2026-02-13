@@ -71,12 +71,13 @@ fun GraphCanvas(
                         val startY = (source.y + source.height).toFloat()
                         val endX = (target.x + target.width / 2).toFloat()
                         val endY = target.y.toFloat()
+                        val midY = startY + (endY - startY) / 2f
 
                         path.moveTo(startX, startY)
-                        // Cubic Bezier for nice curves
-                        path.cubicTo(
-                            startX, startY + 50f, endX, endY - 50f, endX, endY
-                        )
+                        // Draw orthogonal (rectangular) segments
+                        path.lineTo(startX, midY)
+                        path.lineTo(endX, midY)
+                        path.lineTo(endX, endY)
                     }
                 }
                 drawPath(path, Color.Black, style = Stroke(width = 2f))

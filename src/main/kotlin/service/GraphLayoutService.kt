@@ -30,14 +30,16 @@ object GraphLayoutService {
 
         val root = ElkGraphUtil.createGraph()
 
-        // Configure Layout: Top-Down, Orthogonal Routing with Strict Sizing
+        // Configure Layout: Top-Down, Orthogonal Routing with Strict Sizing and Increased Padding
         root.setProperty(CoreOptions.ALGORITHM, "org.eclipse.elk.layered")
         root.setProperty(CoreOptions.DIRECTION, Direction.DOWN)
-        root.setProperty(CoreOptions.SPACING_NODE_NODE, 60.0)
-        root.setProperty(CoreOptions.SPACING_EDGE_NODE, 30.0)
-        root.setProperty(CoreOptions.NODE_SIZE_CONSTRAINTS, EnumSet.of(SizeConstraint.MINIMUM_SIZE))
-        root.setProperty(CoreOptions.EDGE_ROUTING, EdgeRouting.ORTHOGONAL)
 
+        // INCREASE THESE VALUES significantly to prevent visual overlap
+        root.setProperty(CoreOptions.SPACING_NODE_NODE, 150.0)
+        root.setProperty(CoreOptions.SPACING_EDGE_NODE, 80.0)
+
+        root.setProperty(CoreOptions.NODE_SIZE_CONSTRAINTS, java.util.EnumSet.of(SizeConstraint.MINIMUM_SIZE))
+        root.setProperty(CoreOptions.EDGE_ROUTING, org.eclipse.elk.core.options.EdgeRouting.ORTHOGONAL)
         // Maps to keep track of ELK nodes
         val nodeMap = mutableMapOf<String, ElkNode>()
         val edges = mutableListOf<GraphEdge>()

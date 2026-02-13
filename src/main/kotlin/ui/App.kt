@@ -1,14 +1,13 @@
 package ui
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import model.GraphModel
@@ -156,49 +155,74 @@ fun App() {
 
             // 3. Right Inspector Panel (20% width)
             Column(Modifier.weight(0.2f).fillMaxHeight().padding(8.dp)) {
-                Text("Inspector", style = MaterialTheme.typography.headlineSmall)
-                HorizontalDivider()
 
-                selectedNode?.let { node ->
-                    when (node) {
-                        is GraphNode.SnapshotNode -> {
-                            Text("Snapshot ID: ${node.data.snapshotId}")
-                            Text("Timestamp: ${node.data.timestampMs}")
-                            Text("Operation: ${node.data.summary["operation"]}")
-                        }
+                // Top Half: Navigation Tree
+                Text("Structure Tree", style = MaterialTheme.typography.headlineSmall)
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
-                        is GraphNode.ManifestNode -> {
-                            Text("Manifest Entry")
-                            Text("Snapshot: ${node.data.addedSnapshotId}")
-                            Text("Content: ${if (node.data.content == 1) "Delete" else "Data"}")
-                        }
-
-                        is GraphNode.FileNode     -> {
-                            Text("File Path: ${node.data.filePath}")
-                            Text("Rows: ${node.data.recordCount}")
-                            Button(onClick = { /* DuckDB Logic */ }) {
-                                Text("Preview Data")
-                            }
-                        }
-
-                        else                      -> Text("Unknown Node")
+                Box(Modifier.weight(0.5f).fillMaxWidth()) {
+                    if (graphModel != null) {
+                        NavigationTree(
+                            graph = graphModel!!,
+                            selectedNode = selectedNode,
+                            onNodeSelect = { selectedNode = it })
+                    } else {
+                        Text("No graph loaded.", fontSize = 12.sp, color = Color.Gray)
                     }
                 }
 
-                Spacer(Modifier.height(20.dp))
+                Spacer(Modifier.height(16.dp))
 
-                if (tableData.isNotEmpty()) {
-                    LazyColumn {
-                        items(tableData) { row ->
-                            Card(Modifier.padding(4.dp).fillMaxWidth()) {
-                                Column(Modifier.padding(4.dp)) {
-                                    row.forEach { (k, v) ->
-                                        Text("$k: $v", fontSize = 10.sp)
+                // Bottom Half: Node Details
+                Text("Node Details", style = MaterialTheme.typography.headlineSmall)
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                Box(Modifier.weight(0.5f).fillMaxWidth()) {
+                    selectedNode?.let { node ->
+                        Column {
+                            when (node) {
+                                is GraphNode.SnapshotNode -> {
+                                    Text("Snapshot ID: ${node.data.snapshotId}", fontSize = 12.sp)
+                                    Text("Timestamp: ${node.data.timestampMs}", fontSize = 12.sp)
+                                    Text(
+                                        "Operation: ${node.data.summary["operation"]}",
+                                        fontSize = 12.sp
+                                    )
+                                }
+
+                                is GraphNode.ManifestNode -> {
+                                    Text(
+                                        "Manifest Entry",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text("Snapshot: ${node.data.addedSnapshotId}", fontSize = 12.sp)
+                                    Text(
+                                        "Content: ${if (node.data.content == 1) "Delete" else "Data"}",
+                                        fontSize = 12.sp
+                                    )
+                                }
+
+                                is GraphNode.FileNode     -> {
+                                    Text(
+                                        "File Path:", fontSize = 12.sp, fontWeight = FontWeight.Bold
+                                    )
+                                    Text("${node.data.filePath}", fontSize = 10.sp)
+                                    Text("Rows: ${node.data.recordCount}", fontSize = 12.sp)
+                                    Spacer(Modifier.height(8.dp))
+                                    Button(onClick = { /* DuckDB Logic */ }) {
+                                        Text("Preview Data", fontSize = 12.sp)
                                     }
                                 }
+
+                                else                      -> Text(
+                                    "Manifest List Node", fontSize = 12.sp
+                                )
                             }
                         }
-                    }
+                    } ?: Text(
+                        "Select a node to view details.", fontSize = 12.sp, color = Color.Gray
+                    )
                 }
             }
         }
