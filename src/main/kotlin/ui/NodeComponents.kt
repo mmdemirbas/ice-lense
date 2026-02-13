@@ -4,10 +4,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -15,9 +12,26 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import model.GraphNode
+
+fun getGraphNodeColor(node: GraphNode): Color = when (node) {
+    is GraphNode.SnapshotNode     -> Color(0xFFBBDEFB)
+    is GraphNode.ManifestListNode -> Color(0xFFFFCC80)
+    is GraphNode.ManifestNode     -> Color(if (node.data.content == 1) 0xFFFFCDD2 else 0xFFC8E6C9)
+    is GraphNode.FileNode         -> Color(if ((node.data.content ?: 0) > 0) 0xFFEF9A9A else 0xFFE0F2F1)
+    is GraphNode.RowNode          -> Color(0xFFFFF9C4)
+}
+
+fun getGraphNodeBorderColor(node: GraphNode): Color = when (node) {
+    is GraphNode.SnapshotNode     -> Color(0xFF1976D2)
+    is GraphNode.ManifestListNode -> Color(0xFFF57C00)
+    is GraphNode.ManifestNode     -> Color(if (node.data.content == 1) 0xFFD32F2F else 0xFF388E3C)
+    is GraphNode.FileNode         -> Color.Gray
+    is GraphNode.RowNode          -> Color(0xFFFBC02D)
+}
 
 @Composable
 fun SnapshotCard(node: GraphNode.SnapshotNode, onClick: (GraphNode) -> Unit) {
@@ -103,20 +117,25 @@ fun RowCard(node: GraphNode.RowNode, onClick: (GraphNode) -> Unit) {
     Box(
         modifier = Modifier
         .size(node.width.dp, node.height.dp)
-        .background(Color(0xFFFFF9C4), RoundedCornerShape(4.dp))
-        .border(1.dp, Color(0xFFFBC02D), RoundedCornerShape(4.dp))
+        .background(getGraphNodeColor(node), RoundedCornerShape(4.dp))
+        .border(1.dp, getGraphNodeBorderColor(node), RoundedCornerShape(4.dp))
         .clickable { onClick(node) }
-        .padding(4.dp)) {
-        // Preview the first few values as a string
-        val previewText = node.data.values.joinToString(", ")
-        Column {
-            Text("DATA ROW", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = Color.DarkGray)
-            Text(
-                text = previewText,
-                fontSize = 9.sp,
-                maxLines = 1,
-                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-            )
+        .padding(6.dp)) {
+        Column(Modifier.fillMaxSize()) {
+            Text("DATA ROW", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color.DarkGray)
+            Spacer(Modifier.height(2.dp))
+            // Extract the first 3 key-value pairs to display on the card
+            node.data.entries.take(3).forEach { (k, v) ->
+                Text(
+                    text = "$k: $v",
+                    fontSize = 10.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            if (node.data.size > 3) {
+                Text("...", fontSize = 10.sp, color = Color.Gray)
+            }
         }
     }
 }

@@ -4,25 +4,29 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import model.GraphModel
 import model.GraphNode
+import kotlin.math.min
 
 @Composable
 fun GraphCanvas(
@@ -131,6 +135,63 @@ fun GraphCanvas(
                         is GraphNode.FileNode -> FileCard(node, onNodeClick)
                         is GraphNode.RowNode -> RowCard(node, onNodeClick) // NEW
                     }
+                }
+            }
+        }
+
+        // Minimap Radar UI
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(16.dp)
+                .size(240.dp, 160.dp)
+                .background(Color.White.copy(alpha = 0.85f), RoundedCornerShape(8.dp))
+                .border(1.dp, Color.Gray, RoundedCornerShape(8.dp))
+                // Allow dragging the minimap viewport rectangle to pan the main canvas
+                .pointerInput(Unit) {
+                    detectDragGestures { change, dragAmount ->
+                        change.consume()
+                        val mapScale =
+                            min(240f / graph.width.toFloat(), 160f / graph.height.toFloat())
+                        // Inverse translation: dragging minimap view moves main canvas opposite
+                        coroutineScope.launch {
+                            offsetAnim.snapTo(
+                                offsetAnim.value - Offset(
+                                    dragAmount.x / mapScale * zoom,
+                                    dragAmount.y / mapScale * zoom
+                                )
+                            )
+                        }
+                    }
+                }) {
+            Canvas(modifier = Modifier.fillMaxSize().padding(4.dp)) {
+                val mapScale =
+                    min(size.width / graph.width.toFloat(), size.height / graph.height.toFloat())
+                val mapOffsetX = (size.width - (graph.width.toFloat() * mapScale)) / 2f
+                val mapOffsetY = (size.height - (graph.height.toFloat() * mapScale)) / 2f
+
+                translate(mapOffsetX, mapOffsetY) {
+                    // 1. Draw mini nodes
+                    graph.nodes.forEach { n ->
+                        drawRect(
+                            color = getGraphNodeColor(n), // Uses shared theme
+                            topLeft = Offset(n.x.toFloat() * mapScale, n.y.toFloat() * mapScale),
+                            size = Size(n.width.toFloat() * mapScale, n.height.toFloat() * mapScale)
+                        )
+                    }
+
+                    // 2. Draw active viewport window
+                    val vpW = viewportWidth / zoom
+                    val vpH = viewportHeight / zoom
+                    val vpX = -offsetAnim.value.x / zoom
+                    val vpY = -offsetAnim.value.y / zoom
+
+                    drawRect(
+                        color = Color.Red.copy(alpha = 0.4f),
+                        topLeft = Offset(vpX * mapScale, vpY * mapScale),
+                        size = Size(vpW * mapScale, vpH * mapScale),
+                        style = Stroke(width = 3f)
+                    )
                 }
             }
         }

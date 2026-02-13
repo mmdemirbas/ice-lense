@@ -24,6 +24,13 @@ import java.util.prefs.Preferences
 // Access native OS preferences for this package
 private val prefs = Preferences.userRoot().node("com.github.mmdemirbas.icelens")
 private const val PREF_WAREHOUSE_PATH = "last_warehouse_path"
+private const val PREF_SHOW_ROWS = "show_data_rows"
+
+// Data class to hold cached table sessions
+data class TableSession(
+    val graph: GraphModel,
+    var selectedNodeId: String? = null,
+)
 
 @Composable
 fun App() {
@@ -38,8 +45,11 @@ fun App() {
     var tableData by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
 
-    // Toggle State
-    var showRows by remember { mutableStateOf(false) }
+    // Persistent Toggle State
+    var showRows by remember { mutableStateOf(prefs.getBoolean(PREF_SHOW_ROWS, false)) }
+
+    // In-Memory navigation state
+    val sessionCache = remember { mutableMapOf<String, TableSession>() }
 
     // Coroutine scope for async DB queries
     val coroutineScope = rememberCoroutineScope()
@@ -77,6 +87,21 @@ fun App() {
     // Logic to load a specific table
     fun loadTable(tableName: String, withRows: Boolean = showRows) {
         if (warehousePath == null) return
+
+        val cacheKey = "$tableName-rows_$withRows"
+
+        // 1. Check cache first
+        if (sessionCache.containsKey(cacheKey)) {
+            val session = sessionCache[cacheKey]!!
+            graphModel = session.graph
+            selectedTable = tableName
+            selectedNode = session.graph.nodes.find { it.id == session.selectedNodeId }
+            tableData = emptyList()
+            errorMsg = null
+            return
+        }
+
+        // 2. If no cache, perform heavy layout processing
         val path = "$warehousePath/$tableName"
 
         try {
@@ -106,7 +131,7 @@ fun App() {
                 }
             }
 
-            graphModel = GraphLayoutService.layoutGraph(
+            val newGraph = GraphLayoutService.layoutGraph(
                 metadata.snapshots,
                 loadedManifestLists,
                 loadedFiles,
@@ -114,6 +139,11 @@ fun App() {
                 tableName,
                 withRows
             )
+
+            // 3. Save to cache
+            sessionCache[cacheKey] = TableSession(newGraph, null)
+
+            graphModel = newGraph
             selectedTable = tableName
             selectedNode = null
             tableData = emptyList() // Clear data grid on new table
@@ -130,18 +160,25 @@ fun App() {
 
             // 1. Left Sidebar (20% width)
             Box(Modifier.weight(0.2f).fillMaxHeight()) {
+                // Sidebar callback, save the preference and selection
                 Sidebar(
                     warehousePath = warehousePath,
                     tables = availableTables,
                     selectedTable = selectedTable,
-                    showRows = showRows, // NEW
+                    showRows = showRows,
                     onShowRowsChange = {
                         showRows = it
-                        if (selectedTable != null) loadTable(
-                            selectedTable!!, it
-                        ) // Reload graph on toggle
+                        prefs.putBoolean(PREF_SHOW_ROWS, it) // Save to OS
+                        if (selectedTable != null) loadTable(selectedTable!!, it)
                     },
-                    onTableSelect = { loadTable(it) },
+                    onTableSelect = { newTable ->
+                        // Save current selection before leaving
+                        if (selectedTable != null && graphModel != null) {
+                            val oldKey = "$selectedTable-rows_$showRows"
+                            sessionCache[oldKey]?.selectedNodeId = selectedNode?.id
+                        }
+                        loadTable(newTable)
+                    },
                     onWarehouseChange = { newPath ->
                         warehousePath = newPath
                         prefs.put(PREF_WAREHOUSE_PATH, newPath) // Persist to OS

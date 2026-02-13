@@ -1,11 +1,9 @@
 package ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -54,9 +52,25 @@ fun NavigationTree(
                 .fillMaxWidth()
                 .background(bgColor)
                 .clickable { onNodeSelect(node) }
-                .padding(vertical = 4.dp, horizontal = 8.dp)
-                .padding(start = (depth * 16).dp) // Indentation based on depth
-            ) {
+                .padding(vertical = 6.dp, horizontal = 8.dp)
+                .padding(start = (depth * 16).dp), // Indentation based on depth
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                // Color Dot
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .background(
+                            getGraphNodeColor(node),
+                            androidx.compose.foundation.shape.CircleShape
+                        )
+                        .border(
+                            1.dp,
+                            getGraphNodeBorderColor(node),
+                            androidx.compose.foundation.shape.CircleShape
+                        )
+                )
+                Spacer(Modifier.width(8.dp))
+
                 Text(
                     text = getNodeLabel(node),
                     fontSize = 11.sp,
