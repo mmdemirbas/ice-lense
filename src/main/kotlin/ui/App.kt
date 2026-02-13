@@ -8,6 +8,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import model.GraphModel
@@ -16,19 +17,61 @@ import model.ManifestEntry
 import service.GraphLayoutService
 import service.IcebergReader
 import java.io.File
-import javax.swing.JFileChooser
+import java.util.prefs.Preferences
+
+// Access native OS preferences for this package
+private val prefs = Preferences.userRoot().node("com.github.mmdemirbas.icelens")
+private const val PREF_WAREHOUSE_PATH = "last_warehouse_path"
 
 @Composable
 fun App() {
+    // Global State
+    var warehousePath by remember { mutableStateOf(prefs.get(PREF_WAREHOUSE_PATH, null)) }
+    var availableTables by remember { mutableStateOf<List<String>>(emptyList()) }
+
+    // Local Table State
+    var selectedTable by remember { mutableStateOf<String?>(null) }
     var graphModel by remember { mutableStateOf<GraphModel?>(null) }
     var selectedNode by remember { mutableStateOf<GraphNode?>(null) }
     var tableData by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
 
-    // Logic to load table
-    fun loadTable(path: String) {
+    // Logic to scan a warehouse for valid Iceberg tables
+    fun scanWarehouse(path: String) {
+        val root = File(path)
+        if (!root.exists() || !root.isDirectory) {
+            errorMsg = "Invalid warehouse path: $path"
+            return
+        }
+
+        val discovered = root.listFiles { file ->
+            if (!file.isDirectory) return@listFiles false
+            val metaDir = File(file, "metadata")
+            metaDir.exists() && metaDir.isDirectory && metaDir.listFiles { f ->
+                f.name.endsWith(".metadata.json")
+            }?.isNotEmpty() == true
+        }?.map { it.name }?.sorted() ?: emptyList()
+
+        availableTables = discovered
+        errorMsg = null
+
+        // Reset local state
+        selectedTable = null
+        graphModel = null
+        selectedNode = null
+    }
+
+    // Run initial scan if a persisted path exists
+    LaunchedEffect(warehousePath) {
+        warehousePath?.let { scanWarehouse(it) }
+    }
+
+    // Logic to load a specific table
+    fun loadTable(tableName: String) {
+        if (warehousePath == null) return
+        val path = "$warehousePath/$tableName"
+
         try {
-            // 1. Locate Metadata File (naive assumption: latest vX.metadata.json)
             val metaDir = File(path, "metadata")
             val metaFile = metaDir
                                .listFiles()
@@ -36,17 +79,14 @@ fun App() {
                                ?.maxByOrNull { it.name }
                            ?: throw Exception("No metadata file found in $path/metadata")
 
-            // 2. Read Metadata
             val metadata = IcebergReader.readTableMetadata(metaFile.absolutePath)
 
-            // 3. For visual demo, load manifest lists for snapshots
             val loadedManifestLists = metadata.snapshots.associate {
                 it.snapshotId.toString() to IcebergReader.readManifestList(
                     path + "/metadata/" + it.manifestList.orEmpty().substringAfterLast("/")
                 )
             }
 
-            // 4. Load Manifests (lazy load logic simulation)
             val loadedFiles = mutableMapOf<String, List<ManifestEntry>>()
             loadedManifestLists.values.flatten().forEach { ml ->
                 try {
@@ -57,53 +97,64 @@ fun App() {
                 }
             }
 
-            // 5. Layout Graph
             graphModel = GraphLayoutService.layoutGraph(metadata.snapshots, loadedManifestLists, loadedFiles)
+            selectedTable = tableName
+            selectedNode = null
             errorMsg = null
         } catch (e: Exception) {
             errorMsg = e.message
             e.printStackTrace()
+            graphModel = null
         }
     }
 
     MaterialTheme {
         Row(Modifier.fillMaxSize()) {
-            // Main Canvas - Clipped to prevent overflow
-            Box(Modifier.weight(0.75f).fillMaxHeight().clipToBounds()) {
+
+            // 1. Left Sidebar (20% width)
+            Box(Modifier.weight(0.2f).fillMaxHeight()) {
+                Sidebar(
+                    warehousePath = warehousePath,
+                    tables = availableTables,
+                    selectedTable = selectedTable,
+                    onTableSelect = { loadTable(it) },
+                    onWarehouseChange = { newPath ->
+                        warehousePath = newPath
+                        prefs.put(PREF_WAREHOUSE_PATH, newPath) // Persist to OS
+                        scanWarehouse(newPath)
+                    }
+                )
+            }
+
+            VerticalDivider()
+
+            // 2. Main Canvas (60% width)
+            Box(Modifier.weight(0.6f).fillMaxHeight().clipToBounds()) {
                 if (graphModel != null) {
                     GraphCanvas(graphModel!!) { node ->
                         selectedNode = node
-                        // If file node, try to inspect data
-                        if (node is GraphNode.FileNode) {
-                            val absPath = node.data.filePath
-                        }
                     }
-                } else {
-                    Button(
-                        onClick = {
-                            val chooser = JFileChooser()
-                            chooser.fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
-                            chooser.currentDirectory = File(System.getProperty("user.home") + "/code/spark-kit/iceberg/data/db")
-                            if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
-                                loadTable(chooser.selectedFile.absolutePath)
-                            }
-                        }, modifier = Modifier.align(Alignment.Center)
-                    ) {
-                        Text("Open Iceberg Table Directory")
-                    }
+                } else if (warehousePath != null && availableTables.isEmpty()) {
+                    Text(
+                        "No Iceberg tables found in this warehouse.",
+                        color = Color.Gray,
+                        modifier = Modifier.align(Alignment.Center)
+                    )
                 }
 
                 if (errorMsg != null) {
                     Text(
                         "Error: $errorMsg",
                         color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.align(Alignment.BottomCenter)
+                        modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp)
                     )
                 }
             }
 
-            // Right Inspector Panel
-            Column(Modifier.weight(0.25f).fillMaxHeight().padding(8.dp)) {
+            VerticalDivider()
+
+            // 3. Right Inspector Panel (20% width)
+            Column(Modifier.weight(0.2f).fillMaxHeight().padding(8.dp)) {
                 Text("Inspector", style = MaterialTheme.typography.headlineSmall)
                 HorizontalDivider()
 
@@ -124,9 +175,7 @@ fun App() {
                         is GraphNode.FileNode     -> {
                             Text("File Path: ${node.data.filePath}")
                             Text("Rows: ${node.data.recordCount}")
-                            Button(onClick = {
-                                // Trigger DuckDB (Simulation)
-                            }) {
+                            Button(onClick = { /* DuckDB Logic */ }) {
                                 Text("Preview Data")
                             }
                         }
@@ -137,7 +186,6 @@ fun App() {
 
                 Spacer(Modifier.height(20.dp))
 
-                // Data Grid (Simple)
                 if (tableData.isNotEmpty()) {
                     LazyColumn {
                         items(tableData) { row ->
