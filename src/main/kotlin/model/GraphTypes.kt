@@ -9,7 +9,7 @@ data class GraphModel(
     val nodes: List<GraphNode>,
     val edges: List<GraphEdge>,
     val width: Double,
-    val height: Double
+    val height: Double,
 )
 
 sealed class GraphNode(
@@ -17,7 +17,7 @@ sealed class GraphNode(
     initialX: Double,
     initialY: Double,
     open val width: Double,
-    open val height: Double
+    open val height: Double,
 ) {
     var x by mutableStateOf(initialX)
     var y by mutableStateOf(initialY)
@@ -26,28 +26,28 @@ sealed class GraphNode(
         override val id: String,
         val data: Snapshot,
         val initialX: Double = 0.0,
-        val initialY: Double = 0.0
+        val initialY: Double = 0.0,
     ) : GraphNode(id, initialX, initialY, 220.0, 100.0)
 
     data class ManifestListNode(
         override val id: String,
         val path: String,
         val initialX: Double = 0.0,
-        val initialY: Double = 0.0
+        val initialY: Double = 0.0,
     ) : GraphNode(id, initialX, initialY, 180.0, 60.0)
 
     data class ManifestNode(
         override val id: String,
         val data: ManifestListEntry,
         val initialX: Double = 0.0,
-        val initialY: Double = 0.0
+        val initialY: Double = 0.0,
     ) : GraphNode(id, initialX, initialY, 200.0, 80.0)
 
     data class FileNode(
         override val id: String,
         val data: DataFile,
         val initialX: Double = 0.0,
-        val initialY: Double = 0.0
+        val initialY: Double = 0.0,
     ) : GraphNode(id, initialX, initialY, 200.0, 60.0)
 }
 
@@ -56,7 +56,7 @@ data class GraphEdge(
     val fromId: String,
     val toId: String,
     // Calculated route points from ELK
-    val sections: List<EdgeSection> = emptyList()
+    val sections: List<EdgeSection> = emptyList(),
 )
 
 data class EdgeSection(val startX: Double, val startY: Double, val endX: Double, val endY: Double)

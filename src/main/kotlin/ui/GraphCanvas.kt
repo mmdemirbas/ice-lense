@@ -17,55 +17,48 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.dp
 import model.GraphModel
 import model.GraphNode
 
 @Composable
 fun GraphCanvas(
     graph: GraphModel,
-    onNodeClick: (GraphNode) -> Unit
+    onNodeClick: (GraphNode) -> Unit,
 ) {
     var zoom by remember { mutableStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
 
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0xFFE0E0E0))
-            // Handle Click & Drag Panning + Zooming
-            .pointerInput(Unit) {
-                detectTransformGestures { _, pan, gestureZoom, _ ->
-                    zoom = (zoom * gestureZoom).coerceIn(0.1f, 3f)
-                    offset += pan
-                }
+        modifier = Modifier.fillMaxSize().background(Color(0xFFE0E0E0))
+        // Handle Click & Drag Panning + Zooming
+        .pointerInput(Unit) {
+            detectTransformGestures { _, pan, gestureZoom, _ ->
+                zoom = (zoom * gestureZoom).coerceIn(0.1f, 3f)
+                offset += pan
             }
-            // Handle Trackpad Scrolling
-            .pointerInput(Unit) {
-                awaitPointerEventScope {
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        if (event.type == PointerEventType.Scroll) {
-                            val delta = event.changes.first().scrollDelta
-                            // Invert delta and scale for natural feel mapping
-                            offset -= Offset(delta.x * 20f, delta.y * 20f)
-                            event.changes.forEach { it.consume() }
-                        }
+        }
+        // Handle Trackpad Scrolling
+        .pointerInput(Unit) {
+            awaitPointerEventScope {
+                while (true) {
+                    val event = awaitPointerEvent()
+                    if (event.type == PointerEventType.Scroll) {
+                        val delta = event.changes.first().scrollDelta
+                        // Invert delta and scale for natural feel mapping
+                        offset -= Offset(delta.x * 20f, delta.y * 20f)
+                        event.changes.forEach { it.consume() }
                     }
                 }
             }
-    ) {
+        }) {
         // Apply transformations
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
+            modifier = Modifier.fillMaxSize().graphicsLayer {
                     scaleX = zoom
                     scaleY = zoom
                     translationX = offset.x
                     translationY = offset.y
-                }
-        ) {
+                }) {
             // 1. Draw Edges (Canvas)
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val path = Path()
@@ -82,9 +75,7 @@ fun GraphCanvas(
                         path.moveTo(startX, startY)
                         // Cubic Bezier for nice curves
                         path.cubicTo(
-                            startX, startY + 50f,
-                            endX, endY - 50f,
-                            endX, endY
+                            startX, startY + 50f, endX, endY - 50f, endX, endY
                         )
                     }
                 }
@@ -93,18 +84,15 @@ fun GraphCanvas(
 
             // 2. Draw Nodes (Composables)
             graph.nodes.forEach { node ->
-                Box(
-                    modifier = Modifier
-                        .offset { IntOffset(node.x.toInt(), node.y.toInt()) }
-                        // Add node dragging capability
-                        .pointerInput(node.id) {
-                            detectDragGestures { change, dragAmount ->
-                                change.consume()
-                                node.x += dragAmount.x / zoom
-                                node.y += dragAmount.y / zoom
-                            }
+                Box(modifier = Modifier.offset { IntOffset(node.x.toInt(), node.y.toInt()) }
+                    // Add node dragging capability
+                    .pointerInput(node.id) {
+                        detectDragGestures { change, dragAmount ->
+                            change.consume()
+                            node.x += dragAmount.x / zoom
+                            node.y += dragAmount.y / zoom
                         }
-                ) {
+                    }) {
                     when (node) {
                         is GraphNode.SnapshotNode -> SnapshotCard(node, onNodeClick)
                         is GraphNode.ManifestListNode -> ManifestListCard(node, onNodeClick)

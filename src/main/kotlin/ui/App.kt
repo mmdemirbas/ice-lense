@@ -90,14 +90,16 @@ fun App() {
             val loadedFiles = mutableMapOf<String, List<ManifestEntry>>()
             loadedManifestLists.values.flatten().forEach { ml ->
                 try {
-                    val fPath = path + "/metadata/" + ml.manifestPath.orEmpty().substringAfterLast("/")
+                    val fPath =
+                        path + "/metadata/" + ml.manifestPath.orEmpty().substringAfterLast("/")
                     loadedFiles[ml.manifestPath.orEmpty()] = IcebergReader.readManifestFile(fPath)
                 } catch (e: Exception) {
                     println("Could not load manifest ${ml.manifestPath}: ${e.message}")
                 }
             }
 
-            graphModel = GraphLayoutService.layoutGraph(metadata.snapshots, loadedManifestLists, loadedFiles)
+            graphModel =
+                GraphLayoutService.layoutGraph(metadata.snapshots, loadedManifestLists, loadedFiles)
             selectedTable = tableName
             selectedNode = null
             errorMsg = null
@@ -122,8 +124,7 @@ fun App() {
                         warehousePath = newPath
                         prefs.put(PREF_WAREHOUSE_PATH, newPath) // Persist to OS
                         scanWarehouse(newPath)
-                    }
-                )
+                    })
             }
 
             VerticalDivider()

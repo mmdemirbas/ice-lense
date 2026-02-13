@@ -11,7 +11,7 @@ import org.eclipse.elk.core.options.SizeConstraint
 import org.eclipse.elk.core.util.BasicProgressMonitor
 import org.eclipse.elk.graph.ElkNode
 import org.eclipse.elk.graph.util.ElkGraphUtil
-import java.util.EnumSet
+import java.util.*
 
 object GraphLayoutService {
 
@@ -103,36 +103,24 @@ object GraphLayoutService {
                 }
 
                 id.startsWith("ml_")   -> GraphNode.ManifestListNode(
-                    id,
-                    "Manifest List",
-                    elkNode.x,
-                    elkNode.y
+                    id, "Manifest List", elkNode.x, elkNode.y
                 )
 
                 id.startsWith("man_")  -> {
                     // Simplifying lookup for demo
                     GraphNode.ManifestNode(
-                        id,
-                        ManifestListEntry("", 0, 0, 0, 0),
-                        elkNode.x,
-                        elkNode.y
+                        id, ManifestListEntry("", 0, 0, 0, 0), elkNode.x, elkNode.y
                     )
                 }
 
                 id.startsWith("file_") -> {
                     GraphNode.FileNode(
-                        id,
-                        DataFile("file.parquet", "PARQUET", 0, 0),
-                        elkNode.x,
-                        elkNode.y
+                        id, DataFile("file.parquet", "PARQUET", 0, 0), elkNode.x, elkNode.y
                     )
                 }
 
                 else                   -> GraphNode.SnapshotNode(
-                    id,
-                    snapshots.first(),
-                    elkNode.x,
-                    elkNode.y
+                    id, snapshots.first(), elkNode.x, elkNode.y
                 )
             }
         }

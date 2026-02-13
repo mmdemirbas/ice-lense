@@ -5,7 +5,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -21,13 +23,10 @@ fun Sidebar(
     tables: List<String>,
     selectedTable: String?,
     onTableSelect: (String) -> Unit,
-    onWarehouseChange: (String) -> Unit
+    onWarehouseChange: (String) -> Unit,
 ) {
     Column(
-        modifier = Modifier
-            .fillMaxHeight()
-            .background(Color(0xFFF5F5F5))
-            .padding(8.dp)
+        modifier = Modifier.fillMaxHeight().background(Color(0xFFF5F5F5)).padding(8.dp)
     ) {
         Button(
             onClick = {
@@ -41,8 +40,7 @@ fun Sidebar(
                 if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
                     onWarehouseChange(chooser.selectedFile.absolutePath)
                 }
-            },
-            modifier = Modifier.fillMaxWidth()
+            }, modifier = Modifier.fillMaxWidth()
         ) {
             Text("Open Warehouse", fontSize = 12.sp)
         }
@@ -82,11 +80,10 @@ fun Sidebar(
 
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .background(bgColor)
-                            .clickable { onTableSelect(tableName) }
-                            .padding(vertical = 8.dp, horizontal = 4.dp)
-                    ) {
+                        .fillMaxWidth()
+                        .background(bgColor)
+                        .clickable { onTableSelect(tableName) }
+                        .padding(vertical = 8.dp, horizontal = 4.dp)) {
                         Text(
                             text = tableName,
                             fontSize = 13.sp,

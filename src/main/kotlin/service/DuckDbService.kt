@@ -26,7 +26,7 @@ object DuckDbService {
                 val row = mutableMapOf<String, Any>()
                 for (i in 1..colCount) {
                     val colName = meta.getColumnName(i)
-                    val value = rs.getObject(i)?: "null"
+                    val value = rs.getObject(i) ?: "null"
                     row[colName] = value
                 }
                 rows.add(row)
