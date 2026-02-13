@@ -6,9 +6,12 @@ import org.eclipse.elk.core.RecursiveGraphLayoutEngine
 import org.eclipse.elk.core.data.LayoutMetaDataService
 import org.eclipse.elk.core.options.CoreOptions
 import org.eclipse.elk.core.options.Direction
+import org.eclipse.elk.core.options.EdgeRouting
+import org.eclipse.elk.core.options.SizeConstraint
 import org.eclipse.elk.core.util.BasicProgressMonitor
 import org.eclipse.elk.graph.ElkNode
 import org.eclipse.elk.graph.util.ElkGraphUtil
+import java.util.EnumSet
 
 object GraphLayoutService {
 
@@ -27,11 +30,13 @@ object GraphLayoutService {
 
         val root = ElkGraphUtil.createGraph()
 
-        // Configure Layout: Top-Down, Orthogonal Routing
+        // Configure Layout: Top-Down, Orthogonal Routing with Strict Sizing
         root.setProperty(CoreOptions.ALGORITHM, "org.eclipse.elk.layered")
         root.setProperty(CoreOptions.DIRECTION, Direction.DOWN)
         root.setProperty(CoreOptions.SPACING_NODE_NODE, 60.0)
         root.setProperty(CoreOptions.SPACING_EDGE_NODE, 30.0)
+        root.setProperty(CoreOptions.NODE_SIZE_CONSTRAINTS, EnumSet.of(SizeConstraint.MINIMUM_SIZE))
+        root.setProperty(CoreOptions.EDGE_ROUTING, EdgeRouting.ORTHOGONAL)
 
         // Maps to keep track of ELK nodes
         val nodeMap = mutableMapOf<String, ElkNode>()

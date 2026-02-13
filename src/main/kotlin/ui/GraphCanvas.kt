@@ -2,6 +2,7 @@ package ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,6 +14,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -31,10 +33,25 @@ fun GraphCanvas(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFFE0E0E0))
+            // Handle Click & Drag Panning + Zooming
             .pointerInput(Unit) {
                 detectTransformGestures { _, pan, gestureZoom, _ ->
                     zoom = (zoom * gestureZoom).coerceIn(0.1f, 3f)
                     offset += pan
+                }
+            }
+            // Handle Trackpad Scrolling
+            .pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        if (event.type == PointerEventType.Scroll) {
+                            val delta = event.changes.first().scrollDelta
+                            // Invert delta and scale for natural feel mapping
+                            offset -= Offset(delta.x * 20f, delta.y * 20f)
+                            event.changes.forEach { it.consume() }
+                        }
+                    }
                 }
             }
     ) {
@@ -53,12 +70,10 @@ fun GraphCanvas(
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val path = Path()
                 graph.edges.forEach { edge ->
-                    // Simple logic: Find start and end nodes from graph.nodes
-                    // In a real implementation, coordinates should be passed in GraphEdge
                     val source = graph.nodes.find { it.id == edge.fromId }
                     val target = graph.nodes.find { it.id == edge.toId }
 
-                    if (source!= null && target!= null) {
+                    if (source != null && target != null) {
                         val startX = (source.x + source.width / 2).toFloat()
                         val startY = (source.y + source.height).toFloat()
                         val endX = (target.x + target.width / 2).toFloat()
@@ -81,6 +96,14 @@ fun GraphCanvas(
                 Box(
                     modifier = Modifier
                         .offset { IntOffset(node.x.toInt(), node.y.toInt()) }
+                        // Add node dragging capability
+                        .pointerInput(node.id) {
+                            detectDragGestures { change, dragAmount ->
+                                change.consume()
+                                node.x += dragAmount.x / zoom
+                                node.y += dragAmount.y / zoom
+                            }
+                        }
                 ) {
                     when (node) {
                         is GraphNode.SnapshotNode -> SnapshotCard(node, onNodeClick)

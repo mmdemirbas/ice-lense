@@ -1,5 +1,9 @@
 package model
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+
 // The logical graph model used by the UI
 data class GraphModel(
     val nodes: List<GraphNode>,
@@ -10,38 +14,41 @@ data class GraphModel(
 
 sealed class GraphNode(
     open val id: String,
-    open val x: Double,
-    open val y: Double,
+    initialX: Double,
+    initialY: Double,
     open val width: Double,
     open val height: Double
 ) {
+    var x by mutableStateOf(initialX)
+    var y by mutableStateOf(initialY)
+
     data class SnapshotNode(
         override val id: String,
         val data: Snapshot,
-        override val x: Double = 0.0,
-        override val y: Double = 0.0
-    ) : GraphNode(id, x, y, 220.0, 100.0)
+        val initialX: Double = 0.0,
+        val initialY: Double = 0.0
+    ) : GraphNode(id, initialX, initialY, 220.0, 100.0)
 
     data class ManifestListNode(
         override val id: String,
         val path: String,
-        override val x: Double = 0.0,
-        override val y: Double = 0.0
-    ) : GraphNode(id, x, y, 180.0, 60.0)
+        val initialX: Double = 0.0,
+        val initialY: Double = 0.0
+    ) : GraphNode(id, initialX, initialY, 180.0, 60.0)
 
     data class ManifestNode(
         override val id: String,
         val data: ManifestListEntry,
-        override val x: Double = 0.0,
-        override val y: Double = 0.0
-    ) : GraphNode(id, x, y, 200.0, 80.0)
+        val initialX: Double = 0.0,
+        val initialY: Double = 0.0
+    ) : GraphNode(id, initialX, initialY, 200.0, 80.0)
 
     data class FileNode(
         override val id: String,
         val data: DataFile,
-        override val x: Double = 0.0,
-        override val y: Double = 0.0
-    ) : GraphNode(id, x, y, 200.0, 60.0)
+        val initialX: Double = 0.0,
+        val initialY: Double = 0.0
+    ) : GraphNode(id, initialX, initialY, 200.0, 60.0)
 }
 
 data class GraphEdge(

@@ -7,6 +7,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import model.GraphModel
@@ -41,9 +42,7 @@ fun App() {
             // 3. For visual demo, load manifest lists for snapshots
             val loadedManifestLists = metadata.snapshots.associate {
                 it.snapshotId.toString() to IcebergReader.readManifestList(
-                    path + "/metadata/" + it.manifestList.orEmpty().substringAfterLast(
-                        "/"
-                    )
+                    path + "/metadata/" + it.manifestList.orEmpty().substringAfterLast("/")
                 )
             }
 
@@ -59,8 +58,7 @@ fun App() {
             }
 
             // 5. Layout Graph
-            graphModel =
-                GraphLayoutService.layoutGraph(metadata.snapshots, loadedManifestLists, loadedFiles)
+            graphModel = GraphLayoutService.layoutGraph(metadata.snapshots, loadedManifestLists, loadedFiles)
             errorMsg = null
         } catch (e: Exception) {
             errorMsg = e.message
@@ -70,19 +68,14 @@ fun App() {
 
     MaterialTheme {
         Row(Modifier.fillMaxSize()) {
-            // Main Canvas
-            Box(Modifier.weight(0.75f).fillMaxHeight()) {
+            // Main Canvas - Clipped to prevent overflow
+            Box(Modifier.weight(0.75f).fillMaxHeight().clipToBounds()) {
                 if (graphModel != null) {
                     GraphCanvas(graphModel!!) { node ->
                         selectedNode = node
                         // If file node, try to inspect data
                         if (node is GraphNode.FileNode) {
-                            // Resolve relative path for DuckDB
-                            val absPath =
-                                node.data.filePath // This needs proper path resolution in real app
-                            // For this demo, we assume the user picks the warehouse root and files are relative
-                            // Note: Real Iceberg paths are absolute (s3:// or file:/). We need to handle that.
-                            // We skip logic here for brevity.
+                            val absPath = node.data.filePath
                         }
                     }
                 } else {
@@ -133,8 +126,6 @@ fun App() {
                             Text("Rows: ${node.data.recordCount}")
                             Button(onClick = {
                                 // Trigger DuckDB (Simulation)
-                                // In real app, resolve path correctly
-                                // tableData = DuckDbService.queryParquet(node.data.filePath)
                             }) {
                                 Text("Preview Data")
                             }
