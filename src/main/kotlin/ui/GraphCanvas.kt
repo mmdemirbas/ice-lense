@@ -1,10 +1,13 @@
 package ui
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.VectorConverter
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.runtime.*
@@ -17,49 +20,77 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.IntOffset
+import kotlinx.coroutines.launch
 import model.GraphModel
 import model.GraphNode
 
 @Composable
 fun GraphCanvas(
     graph: GraphModel,
-    onNodeClick: (GraphNode) -> Unit,
+    selectedNode: GraphNode?, // 1. Pass selected node to canvas
+    onNodeClick: (GraphNode) -> Unit
 ) {
     var zoom by remember { mutableStateOf(1f) }
-    var offset by remember { mutableStateOf(Offset.Zero) }
+    // 2. Use Animatable for smooth panning
+    val offsetAnim = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
+    val coroutineScope = rememberCoroutineScope()
 
-    Box(
-        modifier = Modifier.fillMaxSize().background(Color(0xFFE0E0E0))
-        // Handle Click & Drag Panning + Zooming
-        .pointerInput(Unit) {
-            detectTransformGestures { _, pan, gestureZoom, _ ->
-                zoom = (zoom * gestureZoom).coerceIn(0.1f, 3f)
-                offset += pan
-            }
-        }
-        // Handle Trackpad Scrolling
-        .pointerInput(Unit) {
-            awaitPointerEventScope {
-                while (true) {
-                    val event = awaitPointerEvent()
-                    if (event.type == PointerEventType.Scroll) {
-                        val delta = event.changes.first().scrollDelta
-                        // Invert delta and scale for natural feel mapping
-                        offset -= Offset(delta.x * 20f, delta.y * 20f)
-                        event.changes.forEach { it.consume() }
+    // 3. Use BoxWithConstraints to know viewport dimensions
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFFE0E0E0))
+            .pointerInput(Unit) {
+                detectTransformGestures { _, pan, gestureZoom, _ ->
+                    zoom = (zoom * gestureZoom).coerceIn(0.1f, 3f)
+                    coroutineScope.launch {
+                        offsetAnim.snapTo(offsetAnim.value + pan)
                     }
                 }
             }
-        }) {
-        // Apply transformations
+            .pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        if (event.type == PointerEventType.Scroll) {
+                            val delta = event.changes.first().scrollDelta
+                            coroutineScope.launch {
+                                offsetAnim.snapTo(offsetAnim.value - Offset(delta.x * 20f, delta.y * 20f))
+                            }
+                            event.changes.forEach { it.consume() }
+                        }
+                    }
+                }
+            }
+    ) {
+        val viewportWidth = constraints.maxWidth.toFloat()
+        val viewportHeight = constraints.maxHeight.toFloat()
+
+        // 4. Calculate offset to center the node when selection changes
+        LaunchedEffect(selectedNode) {
+            if (selectedNode != null) {
+                val nodeCenterX = selectedNode.x.toFloat() + (selectedNode.width.toFloat() / 2f)
+                val nodeCenterY = selectedNode.y.toFloat() + (selectedNode.height.toFloat() / 2f)
+
+                // GraphicsLayer default transformOrigin is Center.
+                // Formula resolves scaled distance from center.
+                val targetX = (viewportWidth / 2f - nodeCenterX) * zoom
+                val targetY = (viewportHeight / 2f - nodeCenterY) * zoom
+
+                offsetAnim.animateTo(Offset(targetX, targetY))
+            }
+        }
+
         Box(
-            modifier = Modifier.fillMaxSize().graphicsLayer {
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
                     scaleX = zoom
                     scaleY = zoom
-                    translationX = offset.x
-                    translationY = offset.y
-                }) {
-            // 1. Draw Edges (Canvas)
+                    translationX = offsetAnim.value.x
+                    translationY = offsetAnim.value.y
+                }
+        ) {
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val path = Path()
                 graph.edges.forEach { edge ->
@@ -74,7 +105,6 @@ fun GraphCanvas(
                         val midY = startY + (endY - startY) / 2f
 
                         path.moveTo(startX, startY)
-                        // Draw orthogonal (rectangular) segments
                         path.lineTo(startX, midY)
                         path.lineTo(endX, midY)
                         path.lineTo(endX, endY)
@@ -83,17 +113,18 @@ fun GraphCanvas(
                 drawPath(path, Color.Black, style = Stroke(width = 2f))
             }
 
-            // 2. Draw Nodes (Composables)
             graph.nodes.forEach { node ->
-                Box(modifier = Modifier.offset { IntOffset(node.x.toInt(), node.y.toInt()) }
-                    // Add node dragging capability
-                    .pointerInput(node.id) {
-                        detectDragGestures { change, dragAmount ->
-                            change.consume()
-                            node.x += dragAmount.x / zoom
-                            node.y += dragAmount.y / zoom
+                Box(
+                    modifier = Modifier
+                        .offset { IntOffset(node.x.toInt(), node.y.toInt()) }
+                        .pointerInput(node.id) {
+                            detectDragGestures { change, dragAmount ->
+                                change.consume()
+                                node.x += dragAmount.x / zoom
+                                node.y += dragAmount.y / zoom
+                            }
                         }
-                    }) {
+                ) {
                     when (node) {
                         is GraphNode.SnapshotNode -> SnapshotCard(node, onNodeClick)
                         is GraphNode.ManifestListNode -> ManifestListCard(node, onNodeClick)

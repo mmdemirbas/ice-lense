@@ -5,8 +5,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -25,8 +27,20 @@ fun NavigationTree(
 ) {
     // Flatten DAG into a list of (Node to Depth) for LazyColumn
     val flattenedTree = remember(graph) { flattenGraph(graph) }
+    val listState = rememberLazyListState()
 
-    LazyColumn(modifier = Modifier.fillMaxSize()) {
+    // 1. Auto-scroll to selected node
+    LaunchedEffect(selectedNode) {
+        if (selectedNode != null) {
+            val index = flattenedTree.indexOfFirst { it.first.id == selectedNode.id }
+            if (index >= 0) {
+                // Scroll the item into view smoothly
+                listState.animateScrollToItem(index)
+            }
+        }
+    }
+
+    LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
         items(flattenedTree) { (node, depth) ->
             val isSelected = node.id == selectedNode?.id
             val bgColor = if (isSelected) Color(0xFFE3F2FD) else Color.Transparent

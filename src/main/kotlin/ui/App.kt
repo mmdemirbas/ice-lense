@@ -131,7 +131,7 @@ fun App() {
             // 2. Main Canvas (60% width)
             Box(Modifier.weight(0.6f).fillMaxHeight().clipToBounds()) {
                 if (graphModel != null) {
-                    GraphCanvas(graphModel!!) { node ->
+                    GraphCanvas(graphModel!!, selectedNode) { node ->
                         selectedNode = node
                     }
                 } else if (warehousePath != null && availableTables.isEmpty()) {
