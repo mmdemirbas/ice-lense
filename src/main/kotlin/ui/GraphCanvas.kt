@@ -176,13 +176,7 @@ fun GraphCanvas(
 
                     if (source != null && target != null) {
                         val path = Path()
-                        val edgeColor = when (source) {
-                            is GraphNode.MetadataNode -> Color(0xFFCE93D8) // Light Purple
-                            is GraphNode.SnapshotNode -> Color(0xFF90CAF9) // Light Blue
-                            is GraphNode.ManifestNode -> Color(0xFFA5D6A7) // Light Green
-                            is GraphNode.FileNode     -> Color(0xFFFFCC80) // Light Orange
-                            else                      -> Color.LightGray
-                        }
+                        val edgeColor = getGraphNodeBorderColor(source)
 
                         if (edge.isSibling) {
                             val startX = (source.x + source.width / 2).toFloat()
@@ -217,18 +211,11 @@ fun GraphCanvas(
                 }
 
                 normalEdges.forEach { (path, color) ->
-                    drawPath(path, color.copy(alpha = 0.5f), style = Stroke(width = 1.5f))
+                    drawPath(path, color.copy(alpha = 0.7f), style = Stroke(width = 2f))
                 }
 
                 highlightedEdges.forEach { (path, color) ->
-                    val highlightColor = when (color) {
-                        Color(0xFFCE93D8) -> Color(0xFF8E24AA)
-                        Color(0xFF90CAF9) -> Color(0xFF1976D2)
-                        Color(0xFFA5D6A7) -> Color(0xFF388E3C)
-                        Color(0xFFFFCC80) -> Color(0xFFF57C00)
-                        else              -> Color(0xFF1976D2)
-                    }
-                    drawPath(path, highlightColor, style = Stroke(width = 3f))
+                    drawPath(path, color, style = Stroke(width = 4f))
                 }
             }
 
