@@ -115,8 +115,8 @@ fun NavigationTree(
                         modifier = Modifier.size(10.dp).background(
                             getGraphNodeColor(node), androidx.compose.foundation.shape.CircleShape
                         ).border(
-                            1.dp,
-                            getGraphNodeBorderColor(node),
+                            if (isSelected) 2.dp else 1.dp,
+                            if (isSelected) Color.Black else getGraphNodeBorderColor(node),
                             androidx.compose.foundation.shape.CircleShape
                         )
                     )

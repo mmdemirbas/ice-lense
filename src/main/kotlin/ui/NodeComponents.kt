@@ -58,12 +58,14 @@ fun getGraphNodeBorderColor(node: GraphNode): Color = when (node) {
 }
 
 @Composable
-fun MetadataCard(node: GraphNode.MetadataNode) {
+fun MetadataCard(node: GraphNode.MetadataNode, isSelected: Boolean = false) {
+    val borderWidth = if (isSelected) 4.dp else 2.dp
+    val borderColor = if (isSelected) Color.Black else getGraphNodeBorderColor(node)
     Box(
         modifier = Modifier
         .size(node.width.dp, node.height.dp)
         .background(getGraphNodeColor(node), RoundedCornerShape(8.dp))
-        .border(BorderStroke(2.dp, getGraphNodeBorderColor(node)), RoundedCornerShape(8.dp))
+        .border(BorderStroke(borderWidth, borderColor), RoundedCornerShape(8.dp))
         .padding(8.dp)) {
         Column {
             Text(
@@ -81,12 +83,14 @@ fun MetadataCard(node: GraphNode.MetadataNode) {
 }
 
 @Composable
-fun SnapshotCard(node: GraphNode.SnapshotNode) {
+fun SnapshotCard(node: GraphNode.SnapshotNode, isSelected: Boolean = false) {
+    val borderWidth = if (isSelected) 4.dp else 2.dp
+    val borderColor = if (isSelected) Color.Black else Color(0xFF1976D2)
     Box(
         modifier = Modifier
         .size(node.width.dp, node.height.dp)
         .background(Color(0xFFBBDEFB), RoundedCornerShape(8.dp))
-        .border(BorderStroke(2.dp, Color(0xFF1976D2)), RoundedCornerShape(8.dp))
+        .border(BorderStroke(borderWidth, borderColor), RoundedCornerShape(8.dp))
         .padding(8.dp)) {
         Column {
             Text("SNAPSHOT", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.DarkGray)
@@ -97,15 +101,16 @@ fun SnapshotCard(node: GraphNode.SnapshotNode) {
 }
 
 @Composable
-fun ManifestCard(node: GraphNode.ManifestNode) {
+fun ManifestCard(node: GraphNode.ManifestNode, isSelected: Boolean = false) {
     val color = if (node.data.content == 1) Color(0xFFFFCDD2) else Color(0xFFC8E6C9)
-    val borderColor = if (node.data.content == 1) Color(0xFFD32F2F) else Color(0xFF388E3C)
+    val borderColor = if (isSelected) Color.Black else (if (node.data.content == 1) Color(0xFFD32F2F) else Color(0xFF388E3C))
+    val borderWidth = if (isSelected) 4.dp else 2.dp
 
     Box(
         modifier = Modifier
         .size(node.width.dp, node.height.dp)
         .background(color, RoundedCornerShape(8.dp))
-        .border(BorderStroke(2.dp, borderColor), RoundedCornerShape(8.dp))
+        .border(BorderStroke(borderWidth, borderColor), RoundedCornerShape(8.dp))
         .padding(8.dp)) {
         Column {
             Text(
@@ -119,19 +124,21 @@ fun ManifestCard(node: GraphNode.ManifestNode) {
 }
 
 @Composable
-fun FileCard(node: GraphNode.FileNode) {
+fun FileCard(node: GraphNode.FileNode, isSelected: Boolean = false) {
     val content = node.data.content ?: 0
     val label = when (content) {
         1    -> "POS DELETE ${node.simpleId}"
         2    -> "EQ DELETE ${node.simpleId}"
         else -> "DATA FILE ${node.simpleId}"
     }
+    val borderWidth = if (isSelected) 3.dp else 1.dp
+    val borderColor = if (isSelected) Color.Black else getGraphNodeBorderColor(node)
 
     Box(
         modifier = Modifier
         .size(node.width.dp, node.height.dp)
         .background(getGraphNodeColor(node), RoundedCornerShape(4.dp))
-        .border(BorderStroke(1.dp, getGraphNodeBorderColor(node)), RoundedCornerShape(4.dp))
+        .border(BorderStroke(borderWidth, borderColor), RoundedCornerShape(4.dp))
         .padding(4.dp)) {
         Column {
             Text(
@@ -147,12 +154,14 @@ fun FileCard(node: GraphNode.FileNode) {
 }
 
 @Composable
-fun RowCard(node: GraphNode.RowNode) {
+fun RowCard(node: GraphNode.RowNode, isSelected: Boolean = false) {
+    val borderWidth = if (isSelected) 3.dp else 1.dp
+    val borderColor = if (isSelected) Color.Black else getGraphNodeBorderColor(node)
     Box(
         modifier = Modifier
         .size(node.width.dp, node.height.dp)
         .background(getGraphNodeColor(node), RoundedCornerShape(4.dp))
-        .border(1.dp, getGraphNodeBorderColor(node), RoundedCornerShape(4.dp))
+        .border(BorderStroke(borderWidth, borderColor), RoundedCornerShape(4.dp))
         .padding(6.dp)) {
         Column(Modifier.fillMaxSize()) {
             val label = when (node.content) {

@@ -41,6 +41,8 @@ object GraphLayoutService {
         val elkNodes = mutableMapOf<String, ElkNode>()
         val logicalNodes = mutableMapOf<String, GraphNode>()
         val edges = mutableListOf<GraphEdge>()
+        val processedManifests = mutableSetOf<String>()
+        val processedFiles = mutableSetOf<String>()
 
         // Registry to map long Iceberg paths to simple IDs
         var nextFileId = 1
@@ -86,77 +88,79 @@ object GraphLayoutService {
                     }
 
                     val manEdgeId = "e_man_${sId}_to_$manId"
-                    ElkGraphUtil.createSimpleEdge(elkNodes[sId], elkNodes[manId])
-                    edges.add(GraphEdge(manEdgeId, sId, manId))
+                    if (edges.none { it.id == manEdgeId }) {
+                        ElkGraphUtil.createSimpleEdge(elkNodes[sId], elkNodes[manId])
+                        edges.add(GraphEdge(manEdgeId, sId, manId))
+                    }
 
-                    val manifestPath = manifest.manifestPath
-                    if (manifestPath != null) {
-                        val unifiedDataFiles = unifiedManifest.manifests
-                        unifiedDataFiles.take(10).forEachIndexed { fIdx, unifiedDataFile ->
-                            val entry = unifiedDataFile.metadata
-                            val dataFile = entry.dataFile ?: DataFile(filePath = "unknown")
-                            val rawPath = dataFile.filePath.orEmpty()
-                            val simpleId = filePathToSimpleId.getOrPut(rawPath) { nextFileId++ }
-                            val fId = "file_$simpleId"
+                    if (processedManifests.add(manId)) {
+                        val manifestPath = manifest.manifestPath
+                        if (manifestPath != null) {
+                            val unifiedDataFiles = unifiedManifest.manifests
+                            unifiedDataFiles.take(10).forEachIndexed { fIdx, unifiedDataFile ->
+                                val entry = unifiedDataFile.metadata
+                                val dataFile = entry.dataFile ?: DataFile(filePath = "unknown")
+                                val rawPath = dataFile.filePath.orEmpty()
+                                val simpleId = filePathToSimpleId.getOrPut(rawPath) { nextFileId++ }
+                                val fId = "file_$simpleId"
 
-                            if (!elkNodes.containsKey(fId)) {
-                                elkNodes[fId] = createElkNode(root, fId, 200.0, 60.0)
-                                logicalNodes[fId] = GraphNode.FileNode(fId, entry, simpleId)
-                            }
-
-                            val edgeId = "e_file_${manId}_to_$fId"
-                            ElkGraphUtil.createSimpleEdge(elkNodes[manId], elkNodes[fId])
-                            edges.add(GraphEdge(edgeId, manId, fId))
-
-                            if (showRows) {
-                                val pathWithoutScheme =
-                                    if (rawPath.startsWith("file:")) URI(rawPath).path else rawPath
-                                val tableMarker = "/${tableModel.name}/"
-
-                                val localFile = if (pathWithoutScheme.contains(tableMarker)) {
-                                    val relativePart = pathWithoutScheme.substringAfter(tableMarker)
-                                    File("${tableModel.path}/$relativePart")
-                                } else {
-                                    File(pathWithoutScheme)
+                                if (!elkNodes.containsKey(fId)) {
+                                    elkNodes[fId] = createElkNode(root, fId, 200.0, 60.0)
+                                    logicalNodes[fId] = GraphNode.FileNode(fId, entry, simpleId)
                                 }
 
-                                if (localFile.exists()) {
-                                    try {
-                                        val contentType = entry.dataFile?.content ?: 0
+                                val edgeId = "e_file_${manId}_to_$fId"
+                                ElkGraphUtil.createSimpleEdge(elkNodes[manId], elkNodes[fId])
+                                edges.add(GraphEdge(edgeId, manId, fId))
 
-                                        unifiedDataFile.rows
-                                            .take(5)
-                                            .forEachIndexed { rIdx, rowData ->
-                                                val enrichedData = mutableMapOf<String, Any>()
-                                                val contentType = entry.dataFile?.content ?: 0
-                                                if (contentType > 0 && rowData.cells.containsKey("file_path")) {
-                                                    val targetPath =
-                                                        rowData.cells["file_path"].toString()
-                                                    val targetId =
-                                                        filePathToSimpleId[targetPath] ?: "?"
-                                                    enrichedData["target_file"] = "File $targetId"
+                                if (showRows && processedFiles.add(fId)) {
+                                    val pathWithoutScheme =
+                                        if (rawPath.startsWith("file:")) URI(rawPath).path else rawPath
+                                    val tableMarker = "/${tableModel.name}/"
+
+                                    val localFile = if (pathWithoutScheme.contains(tableMarker)) {
+                                        val relativePart = pathWithoutScheme.substringAfter(tableMarker)
+                                        File("${tableModel.path}/$relativePart")
+                                    } else {
+                                        File(pathWithoutScheme)
+                                    }
+
+                                    if (localFile.exists()) {
+                                        try {
+                                            unifiedDataFile.rows
+                                                .take(5)
+                                                .forEachIndexed { rIdx, rowData ->
+                                                    val enrichedData = mutableMapOf<String, Any>()
+                                                    val contentType = entry.dataFile?.content ?: 0
+                                                    if (contentType > 0 && rowData.cells.containsKey("file_path")) {
+                                                        val targetPath =
+                                                            rowData.cells["file_path"].toString()
+                                                        val targetId =
+                                                            filePathToSimpleId[targetPath] ?: "?"
+                                                        enrichedData["target_file"] = "File $targetId"
+                                                    }
+                                                    enrichedData.putAll(rowData.cells)
+
+                                                    val rId = "row_${fId}_$rIdx"
+                                                    if (!elkNodes.containsKey(rId)) {
+                                                        elkNodes[rId] =
+                                                            createElkNode(root, rId, 200.0, 80.0)
+                                                        logicalNodes[rId] = GraphNode.RowNode(
+                                                            rId,
+                                                            enrichedData,
+                                                            contentType
+                                                        )
+
+                                                        ElkGraphUtil.createSimpleEdge(
+                                                            elkNodes[fId],
+                                                            elkNodes[rId]
+                                                        )
+                                                        edges.add(GraphEdge("e_row_$rId", fId, rId))
+                                                    }
                                                 }
-                                                enrichedData.putAll(rowData.cells)
-
-                                                val rId = "row_${fId}_$rIdx"
-                                                if (!elkNodes.containsKey(rId)) {
-                                                    elkNodes[rId] =
-                                                        createElkNode(root, rId, 200.0, 80.0)
-                                                    logicalNodes[rId] = GraphNode.RowNode(
-                                                        rId,
-                                                        enrichedData,
-                                                        contentType
-                                                    )
-
-                                                    ElkGraphUtil.createSimpleEdge(
-                                                        elkNodes[fId],
-                                                        elkNodes[rId]
-                                                    )
-                                                    edges.add(GraphEdge("e_row_$rId", fId, rId))
-                                                }
-                                            }
-                                    } catch (e: Exception) {
-                                        println("DuckDB Graph Read Error: ${e.message}")
+                                        } catch (e: Exception) {
+                                            println("DuckDB Graph Read Error: ${e.message}")
+                                        }
                                     }
                                 }
                             }

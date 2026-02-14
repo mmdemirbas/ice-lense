@@ -229,7 +229,9 @@ fun GraphCanvas(
                 translationY = offsetAnim.value.y
                 transformOrigin = TransformOrigin(0f, 0f)
             }) {
-            Canvas(modifier = Modifier.fillMaxSize()) {
+            Canvas(modifier = Modifier.fillMaxSize().pointerInput(Unit) {
+                detectTapGestures(onTap = { onSelectionChange(emptySet()) })
+            }) {
                 val activeNodeIds = if (hoveredNodeId != null) setOf(hoveredNodeId!!) else selectedNodeIds
 
                 val normalEdges = mutableListOf<Pair<Path, Color>>()
@@ -345,12 +347,13 @@ fun GraphCanvas(
                                 }
                                 // Removed redundant .clickable to avoid double selection triggers
                         ) {
+                            val isActive = hoveredNodeId == node.id || selectedNodeIds.contains(node.id)
                             when (node) {
-                                is GraphNode.MetadataNode -> MetadataCard(node)
-                                is GraphNode.SnapshotNode -> SnapshotCard(node)
-                                is GraphNode.ManifestNode -> ManifestCard(node)
-                                is GraphNode.FileNode     -> FileCard(node)
-                                is GraphNode.RowNode      -> RowCard(node)
+                                is GraphNode.MetadataNode -> MetadataCard(node, isSelected = isActive)
+                                is GraphNode.SnapshotNode -> SnapshotCard(node, isSelected = isActive)
+                                is GraphNode.ManifestNode -> ManifestCard(node, isSelected = isActive)
+                                is GraphNode.FileNode     -> FileCard(node, isSelected = isActive)
+                                is GraphNode.RowNode      -> RowCard(node, isSelected = isActive)
                             }
                         }
                     }
