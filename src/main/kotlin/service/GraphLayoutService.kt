@@ -33,7 +33,7 @@ object GraphLayoutService {
         root.setProperty(CoreOptions.SPACING_NODE_NODE, 100.0)
         root.setProperty(
             org.eclipse.elk.alg.layered.options.LayeredOptions.SPACING_NODE_NODE_BETWEEN_LAYERS,
-            100.0
+            300.0
         )
 
         val elkNodes = mutableMapOf<String, ElkNode>()
@@ -41,26 +41,12 @@ object GraphLayoutService {
         val edges = mutableListOf<GraphEdge>()
 
         // 1. COLUMN 1: Lineage of Metadata Files
-        var prevMetaId: String? = null
         tableModel.metadatas.forEach { metadata ->
             val fileName = metadata.path.fileName.toString()
             val meta = metadata.metadata
             val mId = "meta_${fileName}"
             elkNodes[mId] = createElkNode(root, mId, 260.0, 120.0)
-
             logicalNodes[mId] = GraphNode.MetadataNode(mId, fileName, meta)
-
-            // Timeline Sibling Edge (Top to Bottom)
-            if (prevMetaId != null) {
-                edges.add(GraphEdge("e_${prevMetaId}_to_$mId", prevMetaId!!, mId, isSibling = true))
-            }
-            prevMetaId = mId
-
-            // Hierarchy Edge to the Current Snapshot of this metadata version (Column 1 -> Column 2)
-            if (meta.currentSnapshotId != null) {
-                val sId = "snap_${meta.currentSnapshotId}"
-                edges.add(GraphEdge("e_meta_to_snap_$mId", mId, sId, isSibling = false))
-            }
 
             metadata.snapshots.forEach { snapshot ->
                 val snap = snapshot.metadata
@@ -68,13 +54,16 @@ object GraphLayoutService {
                 elkNodes[sId] = createElkNode(root, sId, 220.0, 100.0)
                 logicalNodes[sId] = GraphNode.SnapshotNode(sId, snap)
 
+                ElkGraphUtil.createSimpleEdge(elkNodes[mId], elkNodes[sId])
+                edges.add(GraphEdge("e_snap_$sId", mId, sId))
+
                 // Snapshot Timeline Sibling Edge (Top to Bottom)
-                if (snap.parentSnapshotId != null) {
-                    val pId = "snap_${snap.parentSnapshotId}"
-                    if (elkNodes.containsKey(pId)) {
-                        edges.add(GraphEdge("e_$sId", pId, sId, isSibling = true))
-                    }
-                }
+//                if (snap.parentSnapshotId != null) {
+//                    val pId = "snap_${snap.parentSnapshotId}"
+//                    if (elkNodes.containsKey(pId)) {
+//                        edges.add(GraphEdge("e_$sId", pId, sId, isSibling = true))
+//                    }
+//                }
 
                 // 4. COLUMN 4: Manifest Files
                 val manifests = snapshot.manifestLists
@@ -86,7 +75,7 @@ object GraphLayoutService {
 
                     // Hierarchy Edge (Column 3 -> Column 4)
                     ElkGraphUtil.createSimpleEdge(elkNodes[sId], elkNodes[mId])
-                    edges.add(GraphEdge("e_man_$mId", sId, mId, isSibling = false))
+                    edges.add(GraphEdge("e_man_$mId", sId, mId))
 
                     // 5. COLUMN 5: Data/Delete Files
                     val manifestPath = manifest.manifestPath
@@ -101,7 +90,7 @@ object GraphLayoutService {
 
                             // Hierarchy Edge (Column 4 -> Column 5)
                             ElkGraphUtil.createSimpleEdge(elkNodes[mId], elkNodes[fId])
-                            edges.add(GraphEdge("e_file_$fId", mId, fId, isSibling = false))
+                            edges.add(GraphEdge("e_file_$fId", mId, fId))
 
                             // 6. COLUMN 6: Row Data
                             if (showRows) {
@@ -134,7 +123,7 @@ object GraphLayoutService {
                                                 )
                                                 edges.add(
                                                     GraphEdge(
-                                                        "e_row_$rId", fId, rId, isSibling = false
+                                                        "e_row_$rId", fId, rId
                                                     )
                                                 )
                                             }
