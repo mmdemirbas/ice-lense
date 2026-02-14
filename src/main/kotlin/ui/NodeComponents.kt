@@ -65,12 +65,16 @@ fun getGraphNodeBorderColor(node: GraphNode): Color = when (node) {
 
 private val timestampFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
     .withZone(ZoneId.systemDefault())
+private val utcTimestampFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
+    .withZone(ZoneId.of("UTC"))
 
 fun formatTimestamp(ms: Long?): String {
     if (ms == null) return "N/A"
     return try {
-        val formatted = timestampFormatter.format(Instant.ofEpochMilli(ms))
-        "$formatted ($ms)"
+        val localZone = ZoneId.systemDefault().id
+        val local = timestampFormatter.format(Instant.ofEpochMilli(ms))
+        val utc = utcTimestampFormatter.format(Instant.ofEpochMilli(ms))
+        "$local ($localZone), $utc (UTC), epoch=$ms"
     } catch (e: Exception) {
         "$ms (Error)"
     }

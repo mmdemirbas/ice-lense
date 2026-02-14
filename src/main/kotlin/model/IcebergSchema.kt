@@ -2,6 +2,7 @@ package model
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
 
 // --- Metadata JSON ---
 @Serializable
@@ -13,14 +14,33 @@ data class TableMetadata(
     @SerialName("last-updated-ms") val lastUpdatedMs: Long? = null,
     @SerialName("last-column-id") val lastColumnId: Int? = null,
     @SerialName("current-snapshot-id") val currentSnapshotId: Long? = null,
+    val schemas: List<TableSchema> = emptyList(),
     val snapshots: List<Snapshot> = emptyList(),
     val properties: Map<String, String> = emptyMap(),
+)
+
+@Serializable
+data class TableSchema(
+    val type: String? = null,
+    @SerialName("schema-id") val schemaId: Int? = null,
+    @SerialName("identifier-field-ids") val identifierFieldIds: List<Int> = emptyList(),
+    val fields: List<TableSchemaField> = emptyList(),
+)
+
+@Serializable
+data class TableSchemaField(
+    val id: Int? = null,
+    val name: String? = null,
+    val required: Boolean? = null,
+    val type: JsonElement? = null,
 )
 
 @Serializable
 data class Snapshot(
     @SerialName("snapshot-id") val snapshotId: Long? = null,
     @SerialName("parent-snapshot-id") val parentSnapshotId: Long? = null,
+    @SerialName("sequence-number") val sequenceNumber: Long? = null,
+    @SerialName("schema-id") val schemaId: Int? = null,
     @SerialName("timestamp-ms") val timestampMs: Long? = null,
     @SerialName("manifest-list") val manifestList: String? = null, // Path to Avro file
     val summary: Map<String, String> = emptyMap(),
@@ -63,13 +83,15 @@ data class DataFile(
     @SerialName("file_size_in_bytes") val fileSizeInBytes: Long? = null,
     // V2 Specific: 0=DATA, 1=POSITION_DELETES, 2=EQUALITY_DELETES
     val content: Int? = null,
-//    @SerialName("column_sizes") val columnSizes: List<KeyValuePairInt> = emptyList(),
-//    @SerialName("value_counts") val valueCounts: List<KeyValuePairInt> = emptyList(),
-//    @SerialName("null_value_counts") val nullValueCounts: List<KeyValuePairInt> = emptyList(),
-//    @SerialName("nan_value_counts") val nanValueCounts: List<KeyValuePairInt> = emptyList(),
-//    @SerialName("lower_bounds") val lowerBounds: List<KeyValuePairString> = emptyList(),
-//    @SerialName("upper_bounds") val upperBounds: List<KeyValuePairString> = emptyList(),
-    @SerialName("split_offsets") val splitOffsets: List<Int> = emptyList(),
+    @SerialName("column_sizes") val columnSizes: List<KeyValuePairLong> = emptyList(),
+    @SerialName("value_counts") val valueCounts: List<KeyValuePairLong> = emptyList(),
+    @SerialName("null_value_counts") val nullValueCounts: List<KeyValuePairLong> = emptyList(),
+    @SerialName("nan_value_counts") val nanValueCounts: List<KeyValuePairLong> = emptyList(),
+    @SerialName("lower_bounds") val lowerBounds: List<KeyValuePairBytes> = emptyList(),
+    @SerialName("upper_bounds") val upperBounds: List<KeyValuePairBytes> = emptyList(),
+    @SerialName("key_metadata") val keyMetadata: ByteArray? = null,
+    @SerialName("split_offsets") val splitOffsets: List<Long> = emptyList(),
+    @SerialName("equality_ids") val equalityIds: List<Int>? = null,
     @SerialName("sort_order_id") val sorderOrderId: Long? = null,
 )
 
@@ -79,3 +101,9 @@ data class KeyValuePairInt(val key: Int, val value: Int)
 
 @Serializable
 data class KeyValuePairString(val key: Int, val value: String)
+
+@Serializable
+data class KeyValuePairLong(val key: Int, val value: Long)
+
+@Serializable
+data class KeyValuePairBytes(val key: Int, val value: ByteArray)
