@@ -61,19 +61,6 @@ data class TableSession(
     var selectedNodeIds: Set<String> = emptySet(),
 )
 
-private val timestampFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
-    .withZone(ZoneId.systemDefault())
-
-private fun formatTimestamp(ms: Long?): String {
-    if (ms == null) return "N/A"
-    return try {
-        val formatted = timestampFormatter.format(Instant.ofEpochMilli(ms))
-        "$formatted ($ms)"
-    } catch (e: Exception) {
-        "$ms (Error)"
-    }
-}
-
 @Composable
 fun DraggableDivider(onDrag: (Float) -> Unit) {
     Box(
@@ -89,51 +76,6 @@ fun DraggableDivider(onDrag: (Float) -> Unit) {
             }) {
         VerticalDivider(modifier = Modifier.align(Alignment.Center))
     }
-}
-
-@Composable
-fun DetailTable(content: @Composable () -> Unit) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(4.dp))
-            .border(1.dp, Color.LightGray, RoundedCornerShape(4.dp))
-    ) {
-        content()
-    }
-}
-
-@Composable
-fun DetailRow(key: String, value: String, isHeader: Boolean = false) {
-    val bgColor = if (isHeader) Color(0xFFF5F5F5) else Color.Transparent
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .background(bgColor)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = key,
-            modifier = Modifier.weight(0.4f),
-            fontSize = 12.sp,
-            fontWeight = if (isHeader) FontWeight.Bold else FontWeight.Medium,
-            color = if (isHeader) Color.Black else Color.Gray
-        )
-        Box(Modifier.width(1.dp).height(16.dp).background(Color(0xFFE0E0E0)))
-        Spacer(Modifier.width(12.dp))
-        Text(
-            text = value,
-            modifier = Modifier.weight(0.6f),
-            fontSize = 12.sp,
-            fontWeight = if (isHeader) FontWeight.Bold else FontWeight.Normal,
-            fontFamily = if (isHeader) null else FontFamily.Monospace,
-            color = Color.Black,
-            maxLines = 10,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
-    HorizontalDivider(color = Color(0xFFE0E0E0), thickness = 0.5.dp)
 }
 
 @Composable

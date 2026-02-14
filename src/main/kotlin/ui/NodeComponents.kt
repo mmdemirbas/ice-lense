@@ -5,15 +5,21 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Text
+import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import model.GraphNode
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 fun getGraphNodeColor(node: GraphNode): Color = when (node) {
     is GraphNode.MetadataNode -> Color(0xFFE1BEE7)
@@ -54,6 +60,139 @@ fun getGraphNodeBorderColor(node: GraphNode): Color = when (node) {
         1    -> Color(0xFFE64A19) // Position Delete
         2    -> Color(0xFFBF360C) // Equality Delete
         else -> Color(0xFFFBC02D) // Data Row
+    }
+}
+
+private val timestampFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
+    .withZone(ZoneId.systemDefault())
+
+fun formatTimestamp(ms: Long?): String {
+    if (ms == null) return "N/A"
+    return try {
+        val formatted = timestampFormatter.format(Instant.ofEpochMilli(ms))
+        "$formatted ($ms)"
+    } catch (e: Exception) {
+        "$ms (Error)"
+    }
+}
+
+@Composable
+fun DetailTable(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    Column(
+        modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(4.dp))
+            .border(1.dp, Color.LightGray, RoundedCornerShape(4.dp))
+    ) {
+        content()
+    }
+}
+
+@Composable
+fun DetailRow(key: String, value: String, isHeader: Boolean = false, isDark: Boolean = false) {
+    val bgColor = if (isHeader) (if (isDark) Color(0xFF444444) else Color(0xFFF5F5F5)) else Color.Transparent
+    val keyColor = if (isHeader) (if (isDark) Color.White else Color.Black) else (if (isDark) Color.LightGray else Color.Gray)
+    val valColor = if (isDark) Color.White else Color.Black
+    val dividerColor = if (isDark) Color(0xFF555555) else Color(0xFFE0E0E0)
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(bgColor)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = key,
+            modifier = Modifier.weight(0.4f),
+            fontSize = 11.sp,
+            fontWeight = if (isHeader) FontWeight.Bold else FontWeight.Medium,
+            color = keyColor
+        )
+        Box(Modifier.width(1.dp).height(12.dp).background(dividerColor))
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = value,
+            modifier = Modifier.weight(0.6f),
+            fontSize = 11.sp,
+            fontWeight = if (isHeader) FontWeight.Bold else FontWeight.Normal,
+            fontFamily = if (isHeader) null else FontFamily.Monospace,
+            color = valColor,
+            maxLines = 5,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+    HorizontalDivider(color = dividerColor, thickness = 0.5.dp)
+}
+
+@Composable
+fun NodeTooltip(node: GraphNode) {
+    Column(
+        modifier = Modifier
+            .background(Color(0xEE333333), RoundedCornerShape(4.dp))
+            .border(1.dp, Color.Gray, RoundedCornerShape(4.dp))
+            .padding(8.dp)
+            .width(IntrinsicSize.Max)
+            .defaultMinSize(minWidth = 250.dp)
+    ) {
+        val title = when (node) {
+            is GraphNode.MetadataNode -> "Metadata File"
+            is GraphNode.SnapshotNode -> "Snapshot"
+            is GraphNode.ManifestNode -> if (node.data.content == 1) "Delete Manifest" else "Data Manifest"
+            is GraphNode.FileNode -> when (node.data.content ?: 0) {
+                1 -> "Position Delete File"
+                2 -> "Equality Delete File"
+                else -> "Data File"
+            }
+            is GraphNode.RowNode -> when (node.content) {
+                1 -> "Position Delete Row"
+                2 -> "Equality Delete Row"
+                else -> "Data Row"
+            }
+        }
+        
+        Text(
+            text = title.uppercase(),
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color.LightGray,
+            modifier = Modifier.padding(bottom = 4.dp)
+        )
+        
+        DetailTable {
+            when (node) {
+                is GraphNode.MetadataNode -> {
+                    DetailRow("File", node.fileName, isDark = true)
+                    DetailRow("Version", "${node.data.formatVersion}", isDark = true)
+                    DetailRow("Last Updated", formatTimestamp(node.data.lastUpdatedMs), isDark = true)
+                    DetailRow("Snapshots", "${node.data.snapshots.size}", isDark = true)
+                }
+                is GraphNode.SnapshotNode -> {
+                    DetailRow("ID", "${node.data.snapshotId}", isDark = true)
+                    DetailRow("Operation", node.data.summary["operation"] ?: "N/A", isDark = true)
+                    DetailRow("Timestamp", formatTimestamp(node.data.timestampMs), isDark = true)
+                }
+                is GraphNode.ManifestNode -> {
+                    DetailRow("Added", "${node.data.addedFilesCount} files", isDark = true)
+                    DetailRow("Deleted", "${node.data.deletedFilesCount} files", isDark = true)
+                    DetailRow("Sequence", "${node.data.sequenceNumber ?: "N/A"}", isDark = true)
+                }
+                is GraphNode.FileNode -> {
+                    DetailRow("ID", "File ${node.simpleId}", isDark = true)
+                    DetailRow("Format", node.data.fileFormat ?: "N/A", isDark = true)
+                    DetailRow("Records", "${node.data.recordCount}", isDark = true)
+                    DetailRow("Size", "${node.data.fileSizeInBytes} bytes", isDark = true)
+                }
+                is GraphNode.RowNode -> {
+                    node.data.entries.take(5).forEach { (k, v) ->
+                        DetailRow(k, v.toString(), isDark = true)
+                    }
+                    if (node.data.size > 5) {
+                        DetailRow("...", "and ${node.data.size - 5} more", isDark = true)
+                    }
+                }
+            }
+        }
     }
 }
 

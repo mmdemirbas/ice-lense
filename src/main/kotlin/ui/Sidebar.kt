@@ -43,6 +43,7 @@ fun Sidebar(
     onMoveRoot: (WorkspaceItem, Int) -> Unit,
 ) {
     var expandedPaths by remember { mutableStateOf(setOf<String>()) }
+    var searchQuery by remember { mutableStateOf("") }
     var draggingItemPath by remember { mutableStateOf<String?>(null) }
     var dragOffset by remember { mutableStateOf(0f) }
     var dragAccumulatedOffset by remember { mutableStateOf(0f) }
@@ -109,18 +110,56 @@ fun Sidebar(
             modifier = Modifier.padding(bottom = 4.dp)
         )
 
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+            placeholder = { Text("Search tables...", fontSize = 12.sp) },
+            leadingIcon = { Icon(Icons.Default.Search, null, modifier = Modifier.size(16.dp)) },
+            trailingIcon = if (searchQuery.isNotEmpty()) {
+                {
+                    IconButton(onClick = { searchQuery = "" }) {
+                        Icon(Icons.Default.Clear, null, modifier = Modifier.size(16.dp))
+                    }
+                }
+            } else null,
+            singleLine = true,
+            textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+            colors = OutlinedTextFieldDefaults.colors(
+                unfocusedContainerColor = Color.White,
+                focusedContainerColor = Color.White
+            )
+        )
+
+        val filteredWorkspaceItems = remember(workspaceItems, searchQuery) {
+            if (searchQuery.isBlank()) workspaceItems
+            else {
+                workspaceItems.filter { item ->
+                    when (item) {
+                        is WorkspaceItem.SingleTable -> item.name.contains(searchQuery, ignoreCase = true)
+                        is WorkspaceItem.Warehouse -> {
+                            item.name.contains(searchQuery, ignoreCase = true) ||
+                                    item.tables.any { it.contains(searchQuery, ignoreCase = true) }
+                        }
+                    }
+                }
+            }
+        }
+
         val listState = rememberLazyListState()
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-                workspaceItems.forEachIndexed { index, item ->
+                filteredWorkspaceItems.forEachIndexed { index, item ->
                     item(key = item.path) {
                         val isSelected = item is WorkspaceItem.SingleTable && item.path == selectedTablePath
                         val isDragging = draggingItemPath == item.path
 
+                        val effectivelyExpanded = expandedPaths.contains(item.path) || searchQuery.isNotBlank()
+
                         WorkspaceRootItem(
                             item = item,
                             isSelected = isSelected,
-                            isExpanded = expandedPaths.contains(item.path),
+                            isExpanded = effectivelyExpanded,
                             onToggleExpand = {
                                 expandedPaths = if (expandedPaths.contains(item.path)) {
                                     expandedPaths - item.path
@@ -177,8 +216,11 @@ fun Sidebar(
                         )
                     }
 
-                    if (item is WorkspaceItem.Warehouse && expandedPaths.contains(item.path)) {
-                        items(item.tables) { tableName ->
+                    if (item is WorkspaceItem.Warehouse && (expandedPaths.contains(item.path) || searchQuery.isNotBlank())) {
+                        val filteredTables = if (searchQuery.isBlank()) item.tables
+                        else item.tables.filter { it.contains(searchQuery, ignoreCase = true) || item.name.contains(searchQuery, ignoreCase = true) }
+
+                        items(filteredTables) { tableName ->
                             val tablePath = "${item.path}/$tableName"
                             val isSelected = tablePath == selectedTablePath
                             val bgColor = if (isSelected) Color(0xFFE3F2FD) else Color.Transparent

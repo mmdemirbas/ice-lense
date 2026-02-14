@@ -57,9 +57,10 @@ fun NavigationTree(
 ) {
     val expandedNodeIdsByState = remember { mutableStateOf(setOf<String>()) }
     var expandedNodeIds by expandedNodeIdsByState
+    var searchQuery by remember { mutableStateOf("") }
 
-    val flattenedTree = remember(graph, expandedNodeIds) {
-        flattenGraph(graph, expandedNodeIds)
+    val flattenedTree = remember(graph, expandedNodeIds, searchQuery) {
+        flattenGraph(graph, expandedNodeIds, searchQuery)
     }
 
     val verticalScrollState = rememberScrollState()
@@ -86,6 +87,27 @@ fun NavigationTree(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            modifier = Modifier.fillMaxWidth().padding(8.dp),
+            placeholder = { Text("Filter tree nodes...", fontSize = 12.sp) },
+            leadingIcon = { Icon(Icons.Default.FilterList, null, modifier = Modifier.size(16.dp)) },
+            trailingIcon = if (searchQuery.isNotEmpty()) {
+                {
+                    IconButton(onClick = { searchQuery = "" }) {
+                        Icon(Icons.Default.Clear, null, modifier = Modifier.size(16.dp))
+                    }
+                }
+            } else null,
+            singleLine = true,
+            textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+            colors = OutlinedTextFieldDefaults.colors(
+                unfocusedContainerColor = Color.White,
+                focusedContainerColor = Color.White
+            )
+        )
+
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -192,22 +214,45 @@ fun NavigationTree(
 private fun flattenGraph(
     graph: GraphModel,
     expandedIds: Set<String>,
+    searchQuery: String = ""
 ): List<Triple<GraphNode, Int, Boolean>> {
     val result = mutableListOf<Triple<GraphNode, Int, Boolean>>()
     val edgesBySource = graph.edges.groupBy { it.fromId }
     val visited = mutableSetOf<String>()
 
+    val matchingNodeIds = if (searchQuery.isBlank()) emptySet()
+    else graph.nodes.filter { getNodeLabel(it).contains(searchQuery, ignoreCase = true) }.map { it.id }.toSet()
+
+    val visibleIds = if (searchQuery.isBlank()) null
+    else {
+        val visible = matchingNodeIds.toMutableSet()
+        val edgesByTarget = graph.edges.groupBy { it.toId }
+        fun markAncestors(nodeId: String) {
+            edgesByTarget[nodeId]?.forEach { edge ->
+                if (visible.add(edge.fromId)) {
+                    markAncestors(edge.fromId)
+                }
+            }
+        }
+        matchingNodeIds.forEach { markAncestors(it) }
+        visible
+    }
+
     fun traverse(nodeId: String, depth: Int) {
         if (visited.contains(nodeId)) return
+        if (visibleIds != null && !visibleIds.contains(nodeId)) return
+
         visited.add(nodeId)
 
         val node = graph.nodes.find { it.id == nodeId } ?: return
         val children = edgesBySource[nodeId]?.map { it.toId } ?: emptyList()
+        val filteredChildren = if (visibleIds == null) children else children.filter { visibleIds.contains(it) }
 
-        result.add(Triple(node, depth, children.isNotEmpty()))
+        result.add(Triple(node, depth, filteredChildren.isNotEmpty()))
 
-        if (expandedIds.contains(nodeId)) {
-            children.forEach { traverse(it, depth + 1) }
+        val shouldExpand = expandedIds.contains(nodeId) || (searchQuery.isNotBlank() && visibleIds?.contains(nodeId) == true)
+        if (shouldExpand) {
+            filteredChildren.forEach { traverse(it, depth + 1) }
         }
 
         visited.remove(nodeId)

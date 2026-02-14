@@ -289,21 +289,7 @@ fun GraphCanvas(
             graph.nodes.forEach { node ->
                 Box(modifier = Modifier.offset { IntOffset(node.x.toInt(), node.y.toInt()) }) {
                     TooltipArea(
-                        tooltip = {
-                            Box(
-                                modifier = Modifier
-                                    .background(Color(0xEE333333), RoundedCornerShape(4.dp))
-                                    .border(1.dp, Color.Gray, RoundedCornerShape(4.dp))
-                                    .padding(8.dp)
-                            ) {
-                                Text(
-                                    text = getNodeTooltipText(node),
-                                    color = Color.White,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
-                        },
+                        tooltip = { NodeTooltip(node) },
                         delayMillis = 400,
                         tooltipPlacement = TooltipPlacement.CursorPoint(
                             alignment = Alignment.BottomEnd,
@@ -435,24 +421,4 @@ fun GraphCanvas(
     }
 }
 
-private fun getNodeTooltipText(node: GraphNode): String {
-    return when (node) {
-        is GraphNode.MetadataNode -> "Metadata File\nVersion: ${node.data.formatVersion}\nSnapshots: ${node.data.snapshots.size}"
-        is GraphNode.SnapshotNode -> "Snapshot: ${node.data.snapshotId}\nOp: ${node.data.summary["operation"]}"
-        is GraphNode.ManifestNode -> "Manifest\nAdded Files: ${node.data.addedFilesCount}\nDeleted Files: ${node.data.deletedFilesCount}"
-        is GraphNode.FileNode     -> {
-            val type = when (node.data.content ?: 0) {
-                1    -> "Position Delete File"
-                2    -> "Equality Delete File"
-                else -> "Data File"
-            }
-            "$type\nRecords: ${node.data.recordCount}\nSize: ${node.data.fileSizeInBytes} bytes"
-        }
-
-        is GraphNode.RowNode      -> when (node.content) {
-            1    -> "Position Delete Record"
-            2    -> "Equality Delete Record"
-            else -> "Data Record"
-        }
-    }
-}
+// getNodeTooltipText removed and replaced by NodeTooltip in NodeComponents.kt
