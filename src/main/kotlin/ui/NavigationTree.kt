@@ -87,33 +87,16 @@ fun NavigationTree(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = { searchQuery = it },
-            modifier = Modifier.fillMaxWidth().padding(8.dp),
-            placeholder = { Text("Filter tree nodes...", fontSize = 12.sp) },
-            leadingIcon = { Icon(Icons.Default.FilterList, null, modifier = Modifier.size(16.dp)) },
-            trailingIcon = if (searchQuery.isNotEmpty()) {
-                {
-                    IconButton(onClick = { searchQuery = "" }) {
-                        Icon(Icons.Default.Clear, null, modifier = Modifier.size(16.dp))
-                    }
-                }
-            } else null,
-            singleLine = true,
-            textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
-            colors = OutlinedTextFieldDefaults.colors(
-                unfocusedContainerColor = Color.White,
-                focusedContainerColor = Color.White
-            )
-        )
-
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Spacer(Modifier.weight(1f))
+            CompactSearchField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                modifier = Modifier.weight(1f)
+            )
+            Spacer(Modifier.width(6.dp))
             TreeIconButton(
                 icon = Icons.Default.UnfoldMore,
                 tooltip = "Expand All",

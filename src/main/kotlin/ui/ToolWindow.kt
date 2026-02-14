@@ -5,7 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -26,9 +26,16 @@ fun ToolWindowBar(
     windows: List<Pair<String, ImageVector>>,
     activeWindowId: String?,
     onWindowClick: (String) -> Unit,
+    onWindowDragStart: ((String, Offset) -> Unit)? = null,
+    onWindowDragMove: ((Offset) -> Unit)? = null,
+    onWindowDragEnd: (() -> Unit)? = null,
+    onWindowDragCancel: (() -> Unit)? = null,
     isDropTarget: Boolean = false
 ) {
-    val isVertical = anchor == model.ToolWindowAnchor.LEFT || anchor == model.ToolWindowAnchor.RIGHT
+    val isVertical = anchor == model.ToolWindowAnchor.LEFT_TOP ||
+        anchor == model.ToolWindowAnchor.LEFT_BOTTOM ||
+        anchor == model.ToolWindowAnchor.RIGHT_TOP ||
+        anchor == model.ToolWindowAnchor.RIGHT_BOTTOM
     val barColor = when {
         isDropTarget -> Color(0xFFD6E9FF)
         else -> Color(0xFFF0F0F0)
@@ -43,13 +50,35 @@ fun ToolWindowBar(
         ) {
             windows.forEach { (id, icon) ->
                 val isActive = id == activeWindowId
+                var iconBounds by remember { mutableStateOf<Rect?>(null) }
                 Box(
                     modifier = Modifier
                         .size(32.dp)
                         .background(if (isActive) Color(0xFFE0E0E0) else Color.Transparent)
+                        .onGloballyPositioned { coords -> iconBounds = coords.boundsInWindow() }
                         .clickable { onWindowClick(id) },
                     contentAlignment = Alignment.Center
                 ) {
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .pointerInput(id, onWindowDragStart, onWindowDragMove, onWindowDragEnd, onWindowDragCancel) {
+                                if (onWindowDragStart != null && onWindowDragMove != null && onWindowDragEnd != null) {
+                                    detectDragGestures(
+                                        onDragStart = { offset ->
+                                            val bounds = iconBounds
+                                            if (bounds != null) onWindowDragStart(id, Offset(bounds.left + offset.x, bounds.top + offset.y))
+                                        },
+                                        onDragEnd = onWindowDragEnd,
+                                        onDragCancel = { onWindowDragCancel?.invoke() }
+                                    ) { change, _ ->
+                                        val bounds = iconBounds
+                                        if (bounds != null) onWindowDragMove(Offset(bounds.left + change.position.x, bounds.top + change.position.y))
+                                        change.consume()
+                                    }
+                                }
+                            }
+                    )
                     Icon(
                         imageVector = icon,
                         contentDescription = id,
@@ -69,13 +98,35 @@ fun ToolWindowBar(
         ) {
             windows.forEach { (id, icon) ->
                 val isActive = id == activeWindowId
+                var iconBounds by remember { mutableStateOf<Rect?>(null) }
                 Box(
                     modifier = Modifier
                         .size(32.dp)
                         .background(if (isActive) Color(0xFFE0E0E0) else Color.Transparent)
+                        .onGloballyPositioned { coords -> iconBounds = coords.boundsInWindow() }
                         .clickable { onWindowClick(id) },
                     contentAlignment = Alignment.Center
                 ) {
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .pointerInput(id, onWindowDragStart, onWindowDragMove, onWindowDragEnd, onWindowDragCancel) {
+                                if (onWindowDragStart != null && onWindowDragMove != null && onWindowDragEnd != null) {
+                                    detectDragGestures(
+                                        onDragStart = { offset ->
+                                            val bounds = iconBounds
+                                            if (bounds != null) onWindowDragStart(id, Offset(bounds.left + offset.x, bounds.top + offset.y))
+                                        },
+                                        onDragEnd = onWindowDragEnd,
+                                        onDragCancel = { onWindowDragCancel?.invoke() }
+                                    ) { change, _ ->
+                                        val bounds = iconBounds
+                                        if (bounds != null) onWindowDragMove(Offset(bounds.left + change.position.x, bounds.top + change.position.y))
+                                        change.consume()
+                                    }
+                                }
+                            }
+                    )
                     Icon(
                         imageVector = icon,
                         contentDescription = id,
@@ -135,7 +186,7 @@ fun ToolWindowPane(
             )
             IconButton(onClick = onClose, modifier = Modifier.size(20.dp)) {
                 Icon(
-                    imageVector = Icons.Default.Close,
+                    imageVector = Icons.Default.Remove,
                     contentDescription = "Close",
                     modifier = Modifier.size(14.dp)
                 )

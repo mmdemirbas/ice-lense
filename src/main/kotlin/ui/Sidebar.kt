@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.*
@@ -25,43 +27,42 @@ import java.io.File
 import javax.swing.JFileChooser
 
 @Composable
-fun FiltersPanel(
-    showRows: Boolean,
-    onShowRowsChange: (Boolean) -> Unit,
-    showMetadata: Boolean,
-    onShowMetadataChange: (Boolean) -> Unit,
-    showSnapshots: Boolean,
-    onShowSnapshotsChange: (Boolean) -> Unit,
-    showManifests: Boolean,
-    onShowManifestsChange: (Boolean) -> Unit,
-    showDataFiles: Boolean,
-    onShowDataFilesChange: (Boolean) -> Unit,
+fun CompactSearchField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    placeholder: String = "Search..."
 ) {
-    Column(
-        modifier = Modifier.fillMaxSize().background(Color(0xFFF5F5F5)).padding(8.dp)
+    Row(
+        modifier = modifier
+            .height(32.dp)
+            .background(Color.White, RoundedCornerShape(6.dp))
+            .border(1.dp, Color(0xFFD0D0D0), RoundedCornerShape(6.dp))
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Text("FILTER NODES", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
-        Column {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(checked = showMetadata, onCheckedChange = onShowMetadataChange, modifier = Modifier.size(32.dp))
-                Text("Metadata", fontSize = 11.sp)
+        Icon(Icons.Default.Search, null, modifier = Modifier.size(14.dp), tint = Color.Gray)
+        Spacer(Modifier.width(6.dp))
+        Box(Modifier.weight(1f)) {
+            if (value.isEmpty()) {
+                Text(placeholder, fontSize = 11.sp, color = Color.Gray)
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(checked = showSnapshots, onCheckedChange = onShowSnapshotsChange, modifier = Modifier.size(32.dp))
-                Text("Snapshots", fontSize = 11.sp)
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(checked = showManifests, onCheckedChange = onShowManifestsChange, modifier = Modifier.size(32.dp))
-                Text("Manifests", fontSize = 11.sp)
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(checked = showDataFiles, onCheckedChange = onShowDataFilesChange, modifier = Modifier.size(32.dp))
-                Text("Data Files", fontSize = 11.sp)
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(checked = showRows, onCheckedChange = onShowRowsChange, modifier = Modifier.size(32.dp))
-                Text("Data Rows", fontSize = 11.sp)
-            }
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                singleLine = true,
+                textStyle = LocalTextStyle.current.copy(fontSize = 11.sp, color = Color.Black),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        if (value.isNotEmpty()) {
+            Spacer(Modifier.width(4.dp))
+            Icon(
+                Icons.Default.Clear,
+                null,
+                modifier = Modifier.size(14.dp).clickable { onValueChange("") },
+                tint = Color.Gray
+            )
         }
     }
 }
@@ -83,6 +84,7 @@ fun WorkspacePanel(
     var draggingItemPath by remember { mutableStateOf<String?>(null) }
     var dragOffset by remember { mutableStateOf(0f) }
     var dragAccumulatedOffset by remember { mutableStateOf(0f) }
+    var pendingRemoveItem by remember { mutableStateOf<WorkspaceItem?>(null) }
 
     val currentWorkspaceItems by rememberUpdatedState(workspaceItems)
     val currentOnMoveRoot by rememberUpdatedState(onMoveRoot)
@@ -117,26 +119,33 @@ fun WorkspacePanel(
             modifier = Modifier.padding(bottom = 4.dp)
         )
 
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = onSearchQueryChange,
+        Row(
             modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-            placeholder = { Text("Search tables...", fontSize = 12.sp) },
-            leadingIcon = { Icon(Icons.Default.Search, null, modifier = Modifier.size(16.dp)) },
-            trailingIcon = if (searchQuery.isNotEmpty()) {
-                {
-                    IconButton(onClick = { onSearchQueryChange("") }) {
-                        Icon(Icons.Default.Clear, null, modifier = Modifier.size(16.dp))
-                    }
-                }
-            } else null,
-            singleLine = true,
-            textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
-            colors = OutlinedTextFieldDefaults.colors(
-                unfocusedContainerColor = Color.White,
-                focusedContainerColor = Color.White
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            CompactSearchField(
+                value = searchQuery,
+                onValueChange = onSearchQueryChange,
+                modifier = Modifier.weight(1f)
             )
-        )
+            Spacer(Modifier.width(6.dp))
+            TreeIconButton(
+                icon = Icons.Default.UnfoldMore,
+                tooltip = "Expand All",
+                onClick = {
+                    val allWarehousePaths = workspaceItems
+                        .filterIsInstance<WorkspaceItem.Warehouse>()
+                        .map { it.path }
+                        .toSet()
+                    onExpandedPathsChange(allWarehousePaths)
+                }
+            )
+            TreeIconButton(
+                icon = Icons.Default.UnfoldLess,
+                tooltip = "Collapse All",
+                onClick = { onExpandedPathsChange(emptySet()) }
+            )
+        }
 
         val filteredWorkspaceItems = remember(workspaceItems, searchQuery) {
             if (searchQuery.isBlank()) workspaceItems
@@ -179,7 +188,7 @@ fun WorkspacePanel(
                                     onTableSelect(item.path)
                                 }
                             },
-                            onRemove = { onRemoveRoot(item) },
+                            onRemove = { pendingRemoveItem = item },
                             modifier = Modifier
                                 .graphicsLayer {
                                     if (isDragging) {
@@ -280,6 +289,26 @@ fun WorkspacePanel(
                 adapter = rememberScrollbarAdapter(scrollState = listState)
             )
         }
+    }
+
+    val itemToRemove = pendingRemoveItem
+    if (itemToRemove != null) {
+        AlertDialog(
+            onDismissRequest = { pendingRemoveItem = null },
+            title = { Text("Remove from workspace?") },
+            text = { Text("Are you sure you want to remove '${itemToRemove.name}' from the workspace?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onRemoveRoot(itemToRemove)
+                        pendingRemoveItem = null
+                    }
+                ) { Text("Remove") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingRemoveItem = null }) { Text("Cancel") }
+            }
+        )
     }
 }
 

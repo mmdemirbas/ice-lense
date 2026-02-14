@@ -3,7 +3,7 @@ package model
 import androidx.compose.ui.graphics.vector.ImageVector
 
 enum class ToolWindowAnchor {
-    LEFT, RIGHT, TOP, BOTTOM
+    LEFT_TOP, LEFT_BOTTOM, RIGHT_TOP, RIGHT_BOTTOM, BOTTOM_LEFT, BOTTOM_RIGHT
 }
 
 data class ToolWindowConfig(

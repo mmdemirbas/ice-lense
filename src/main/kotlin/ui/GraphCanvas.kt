@@ -47,6 +47,7 @@ fun GraphCanvas(
     onZoomChange: (Float) -> Unit,
     onSelectionChange: (Set<String>) -> Unit,
     onEmptyAreaDoubleClick: () -> Unit = {},
+    onNodeDoubleClick: (GraphNode) -> Unit = {},
 ) {
     // Consumed to ensure recomposition/reset-sensitive logic sees relayout events.
     @Suppress("UNUSED_VARIABLE")
@@ -401,7 +402,13 @@ fun GraphCanvas(
                                     }
                                 }
                                 .pointerInput(node.id + "_tap") {
-                                    detectTapGestures(onTap = { onSelectionChange(setOf(node.id)) })
+                                    detectTapGestures(
+                                        onTap = { onSelectionChange(setOf(node.id)) },
+                                        onDoubleTap = {
+                                            onSelectionChange(setOf(node.id))
+                                            onNodeDoubleClick(node)
+                                        }
+                                    )
                                 }
                                 // Removed redundant .clickable to avoid double selection triggers
                         ) {
