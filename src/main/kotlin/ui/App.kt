@@ -1,13 +1,11 @@
 package ui
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
+import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -431,10 +429,12 @@ fun App() {
                                 } else if (selectedNodeIds.size == 1) {
                                     val node = graphModel?.nodes?.find { it.id == selectedNodeIds.first() }
                                     if (node != null) {
-                                        Column(
-                                            Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-                                        ) {
-                                            when (node) {
+                                        val scrollState = rememberScrollState()
+                                        Box(Modifier.fillMaxSize()) {
+                                            Column(
+                                                Modifier.fillMaxSize().verticalScroll(scrollState)
+                                            ) {
+                                                when (node) {
                                                 is GraphNode.MetadataNode -> {
                                                     DetailTable {
                                                         DetailRow("Property", "Value", isHeader = true)
@@ -637,6 +637,10 @@ fun App() {
                                                 }
                                             }
                                         }
+                                        VerticalScrollbar(
+                                            modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
+                                            adapter = rememberScrollbarAdapter(scrollState)
+                                        )
                                     }
                                 } else {
                                     Column {
@@ -655,4 +659,5 @@ fun App() {
             }
         }
     }
+}
 }

@@ -1,10 +1,13 @@
 package ui
 
+import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
@@ -113,26 +116,33 @@ fun Sidebar(
                 modifier = Modifier.padding(bottom = 4.dp)
             )
 
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
-                items(tables) { tableName ->
-                    val isSelected = tableName == selectedTable
-                    val bgColor = if (isSelected) Color(0xFFE3F2FD) else Color.Transparent
-                    val textColor = if (isSelected) Color(0xFF1976D2) else Color.Black
+            val tableListState = rememberLazyListState()
+            Box(modifier = Modifier.fillMaxSize()) {
+                LazyColumn(state = tableListState, modifier = Modifier.fillMaxSize()) {
+                    items(tables) { tableName ->
+                        val isSelected = tableName == selectedTable
+                        val bgColor = if (isSelected) Color(0xFFE3F2FD) else Color.Transparent
+                        val textColor = if (isSelected) Color(0xFF1976D2) else Color.Black
 
-                    Box(
-                        modifier = Modifier
-                        .fillMaxWidth()
-                        .background(bgColor)
-                        .clickable { onTableSelect(tableName) }
-                        .padding(vertical = 8.dp, horizontal = 4.dp)) {
-                        Text(
-                            text = tableName,
-                            fontSize = 13.sp,
-                            color = textColor,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                        )
+                        Box(
+                            modifier = Modifier
+                            .fillMaxWidth()
+                            .background(bgColor)
+                            .clickable { onTableSelect(tableName) }
+                            .padding(vertical = 8.dp, horizontal = 4.dp)) {
+                            Text(
+                                text = tableName,
+                                fontSize = 13.sp,
+                                color = textColor,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
                     }
                 }
+                VerticalScrollbar(
+                    modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
+                    adapter = rememberScrollbarAdapter(scrollState = tableListState)
+                )
             }
         } else {
             Text(

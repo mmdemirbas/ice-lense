@@ -1,12 +1,7 @@
 package ui
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowRight
@@ -30,12 +25,16 @@ fun NavigationTree(
     selectedNodeIds: Set<String>,
     onNodeSelect: (GraphNode) -> Unit,
 ) {
-    var expandedNodeIds by remember { mutableStateOf(setOf<String>()) }
+    val expandedNodeIdsByState = remember { mutableStateOf(setOf<String>()) }
+    var expandedNodeIds by expandedNodeIdsByState
 
     val flattenedTree = remember(graph, expandedNodeIds) {
         flattenGraph(graph, expandedNodeIds)
     }
-    val listState = rememberLazyListState()
+
+    val verticalScrollState = rememberScrollState()
+    val horizontalScrollState = rememberScrollState()
+    val density = androidx.compose.ui.platform.LocalDensity.current
 
     LaunchedEffect(selectedNodeIds) {
         if (selectedNodeIds.size == 1) {
@@ -45,10 +44,12 @@ fun NavigationTree(
 
             val index = flattenedTree.indexOfFirst { it.first.id == selectedId }
             if (index >= 0) {
-                val visibleItems = listState.layoutInfo.visibleItemsInfo
-                val isItemVisible = visibleItems.any { it.index == index }
-                if (!isItemVisible) {
-                    listState.animateScrollToItem(index)
+                val itemHeightPx = with(density) { 32.dp.toPx() }
+                val targetScroll = (index * itemHeightPx).toInt()
+                
+                val viewportHeightPx = verticalScrollState.viewportSize
+                if (targetScroll < verticalScrollState.value || targetScroll > (verticalScrollState.value + viewportHeightPx - itemHeightPx)) {
+                    verticalScrollState.animateScrollTo(targetScroll)
                 }
             }
         }
@@ -73,65 +74,87 @@ fun NavigationTree(
             }
         }
 
-        LazyColumn(state = listState, modifier = Modifier.weight(1f)) {
-            items(flattenedTree) { (node, depth, hasChildren) ->
-                val isSelected = selectedNodeIds.contains(node.id)
-                val isExpanded = expandedNodeIds.contains(node.id)
-                val bgColor = if (isSelected) Color(0xFFE3F2FD) else Color.Transparent
-                val textColor = if (isSelected) Color(0xFF1976D2) else Color.DarkGray
-
-                Row(
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            Box(modifier = Modifier.fillMaxSize().horizontalScroll(horizontalScrollState)) {
+                Column(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .background(bgColor)
-                        .clickable { onNodeSelect(node) }
-                        .padding(vertical = 4.dp, horizontal = 8.dp)
-                        .padding(start = (depth * 16).dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .fillMaxHeight()
+                        .verticalScroll(verticalScrollState)
+                        .width(IntrinsicSize.Max)
+                        .defaultMinSize(minWidth = 300.dp)
                 ) {
-                    Box(
-                        modifier = Modifier.size(16.dp).clickable {
-                            if (hasChildren) {
-                                expandedNodeIds = if (isExpanded) {
-                                    expandedNodeIds - node.id
-                                } else {
-                                    expandedNodeIds + node.id
+                    flattenedTree.forEach { triple ->
+                        val node = triple.first
+                        val depth = triple.second
+                        val hasChildren = triple.third
+                        
+                        val isSelected = selectedNodeIds.contains(node.id)
+                        val isExpanded = expandedNodeIds.contains(node.id)
+                        val bgColor = if (isSelected) Color(0xFFE3F2FD) else Color.Transparent
+                        val textColor = if (isSelected) Color(0xFF1976D2) else Color.DarkGray
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(32.dp)
+                                .background(bgColor)
+                                .clickable { onNodeSelect(node) }
+                                .padding(horizontal = 8.dp)
+                                .padding(start = (depth * 16).dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier.size(16.dp).clickable {
+                                    if (hasChildren) {
+                                        expandedNodeIds = if (isExpanded) {
+                                            expandedNodeIds - node.id
+                                        } else {
+                                            expandedNodeIds + node.id
+                                        }
+                                    }
+                                }) {
+                                if (hasChildren) {
+                                    Icon(
+                                        imageVector = if (isExpanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowRight,
+                                        contentDescription = "Toggle Expand",
+                                        tint = Color.Gray,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
                                 }
                             }
-                        }) {
-                        if (hasChildren) {
-                            Icon(
-                                imageVector = if (isExpanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowRight,
-                                contentDescription = "Toggle Expand",
-                                tint = Color.Gray,
-                                modifier = Modifier.fillMaxSize()
+
+                            Spacer(Modifier.width(4.dp))
+
+                            Box(
+                                modifier = Modifier.size(10.dp).background(
+                                    getGraphNodeColor(node), androidx.compose.foundation.shape.CircleShape
+                                ).border(
+                                    if (isSelected) 2.dp else 1.dp,
+                                    if (isSelected) Color.Black else getGraphNodeBorderColor(node),
+                                    androidx.compose.foundation.shape.CircleShape
+                                )
+                            )
+                            Spacer(Modifier.width(8.dp))
+
+                            Text(
+                                text = getNodeLabel(node),
+                                fontSize = 11.sp,
+                                color = textColor,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                softWrap = false
                             )
                         }
                     }
-
-                    Spacer(Modifier.width(4.dp))
-
-                    Box(
-                        modifier = Modifier.size(10.dp).background(
-                            getGraphNodeColor(node), androidx.compose.foundation.shape.CircleShape
-                        ).border(
-                            if (isSelected) 2.dp else 1.dp,
-                            if (isSelected) Color.Black else getGraphNodeBorderColor(node),
-                            androidx.compose.foundation.shape.CircleShape
-                        )
-                    )
-                    Spacer(Modifier.width(8.dp))
-
-                    Text(
-                        text = getNodeLabel(node),
-                        fontSize = 11.sp,
-                        color = textColor,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
                 }
             }
+            VerticalScrollbar(
+                modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
+                adapter = rememberScrollbarAdapter(verticalScrollState)
+            )
+            HorizontalScrollbar(
+                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
+                adapter = rememberScrollbarAdapter(horizontalScrollState)
+            )
         }
     }
 }
