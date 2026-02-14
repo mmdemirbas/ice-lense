@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,23 +54,43 @@ fun NavigationTree(
         }
     }
 
-    LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-        items(flattenedTree) { (node, depth, hasChildren) ->
-            val isSelected = selectedNodeIds.contains(node.id)
-            val isExpanded = expandedNodeIds.contains(node.id)
-            val bgColor = if (isSelected) Color(0xFFE3F2FD) else Color.Transparent
-            val textColor = if (isSelected) Color(0xFF1976D2) else Color.DarkGray
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            TextButton(
+                onClick = { expandedNodeIds = graph.nodes.map { it.id }.toSet() },
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+            ) {
+                Text("Expand All", fontSize = 10.sp)
+            }
+            TextButton(
+                onClick = { expandedNodeIds = emptySet() },
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+            ) {
+                Text("Collapse All", fontSize = 10.sp)
+            }
+        }
 
-            Row(
-                modifier = Modifier
-                .fillMaxWidth()
-                .background(bgColor)
-                .clickable { onNodeSelect(node) }
-                .padding(vertical = 4.dp, horizontal = 8.dp)
-                .padding(start = (depth * 16).dp),
-                verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier.size(16.dp).clickable {
+        LazyColumn(state = listState, modifier = Modifier.weight(1f)) {
+            items(flattenedTree) { (node, depth, hasChildren) ->
+                val isSelected = selectedNodeIds.contains(node.id)
+                val isExpanded = expandedNodeIds.contains(node.id)
+                val bgColor = if (isSelected) Color(0xFFE3F2FD) else Color.Transparent
+                val textColor = if (isSelected) Color(0xFF1976D2) else Color.DarkGray
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(bgColor)
+                        .clickable { onNodeSelect(node) }
+                        .padding(vertical = 4.dp, horizontal = 8.dp)
+                        .padding(start = (depth * 16).dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier.size(16.dp).clickable {
                             if (hasChildren) {
                                 expandedNodeIds = if (isExpanded) {
                                     expandedNodeIds - node.id
@@ -78,37 +99,38 @@ fun NavigationTree(
                                 }
                             }
                         }) {
-                    if (hasChildren) {
-                        Icon(
-                            imageVector = if (isExpanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowRight,
-                            contentDescription = "Toggle Expand",
-                            tint = Color.Gray,
-                            modifier = Modifier.fillMaxSize()
-                        )
+                        if (hasChildren) {
+                            Icon(
+                                imageVector = if (isExpanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowRight,
+                                contentDescription = "Toggle Expand",
+                                tint = Color.Gray,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
                     }
-                }
 
-                Spacer(Modifier.width(4.dp))
+                    Spacer(Modifier.width(4.dp))
 
-                Box(
-                    modifier = Modifier.size(10.dp).background(
-                        getGraphNodeColor(node), androidx.compose.foundation.shape.CircleShape
-                    ).border(
-                        1.dp,
-                        getGraphNodeBorderColor(node),
-                        androidx.compose.foundation.shape.CircleShape
+                    Box(
+                        modifier = Modifier.size(10.dp).background(
+                            getGraphNodeColor(node), androidx.compose.foundation.shape.CircleShape
+                        ).border(
+                            1.dp,
+                            getGraphNodeBorderColor(node),
+                            androidx.compose.foundation.shape.CircleShape
+                        )
                     )
-                )
-                Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(8.dp))
 
-                Text(
-                    text = getNodeLabel(node),
-                    fontSize = 11.sp,
-                    color = textColor,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                    Text(
+                        text = getNodeLabel(node),
+                        fontSize = 11.sp,
+                        color = textColor,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
         }
     }

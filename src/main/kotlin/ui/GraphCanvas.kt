@@ -42,9 +42,10 @@ fun GraphCanvas(
     graph: GraphModel,
     selectedNodeIds: Set<String>,
     isSelectMode: Boolean,
+    zoom: Float,
+    onZoomChange: (Float) -> Unit,
     onSelectionChange: (Set<String>) -> Unit,
 ) {
-    var zoom by remember { mutableStateOf(1f) }
     val offsetAnim = remember { Animatable(Offset(100f, 100f), Offset.VectorConverter) }
     val coroutineScope = rememberCoroutineScope()
 
@@ -97,7 +98,7 @@ fun GraphCanvas(
                     }
                 } else {
                     detectTransformGestures { _, pan, gestureZoom, _ ->
-                        zoom = (zoom * gestureZoom).coerceIn(0.1f, 3f)
+                        onZoomChange((zoom * gestureZoom).coerceIn(0.1f, 3f))
                         coroutineScope.launch {
                             offsetAnim.snapTo(offsetAnim.value + pan)
                         }
@@ -137,7 +138,7 @@ fun GraphCanvas(
                     val nodeBottom =
                         (selectedNode.y.toFloat() + selectedNode.height.toFloat()) * zoom + currentY
 
-                    val margin = 50f
+                    val margin = 20f
 
                     val isVisible =
                         nodeLeft >= margin && nodeRight <= (viewportWidth - margin) && nodeTop >= margin && nodeBottom <= (viewportHeight - margin)
@@ -166,8 +167,8 @@ fun GraphCanvas(
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val activeNodeIds = if (hoveredNodeId != null) setOf(hoveredNodeId!!) else selectedNodeIds
 
-                val normalEdges = mutableListOf<Path>()
-                val highlightedEdges = mutableListOf<Path>()
+                val normalEdges = mutableListOf<Pair<Path, Color>>()
+                val highlightedEdges = mutableListOf<Pair<Path, Color>>()
 
                 graph.edges.forEach { edge ->
                     val source = graph.nodes.find { it.id == edge.fromId }
@@ -175,6 +176,14 @@ fun GraphCanvas(
 
                     if (source != null && target != null) {
                         val path = Path()
+                        val edgeColor = when (source) {
+                            is GraphNode.MetadataNode -> Color(0xFFCE93D8) // Light Purple
+                            is GraphNode.SnapshotNode -> Color(0xFF90CAF9) // Light Blue
+                            is GraphNode.ManifestNode -> Color(0xFFA5D6A7) // Light Green
+                            is GraphNode.FileNode     -> Color(0xFFFFCC80) // Light Orange
+                            else                      -> Color.LightGray
+                        }
+
                         if (edge.isSibling) {
                             val startX = (source.x + source.width / 2).toFloat()
                             val startY = (source.y + source.height).toFloat()
@@ -200,18 +209,26 @@ fun GraphCanvas(
                         }
 
                         if (activeNodeIds.contains(edge.fromId) || activeNodeIds.contains(edge.toId)) {
-                            highlightedEdges.add(path)
+                            highlightedEdges.add(path to edgeColor)
                         } else {
-                            normalEdges.add(path)
+                            normalEdges.add(path to edgeColor)
                         }
                     }
                 }
 
-                normalEdges.forEach { path ->
-                    drawPath(path, Color.LightGray, style = Stroke(width = 2f))
+                normalEdges.forEach { (path, color) ->
+                    drawPath(path, color.copy(alpha = 0.5f), style = Stroke(width = 1.5f))
                 }
-                highlightedEdges.forEach { path ->
-                    drawPath(path, Color(0xFF1976D2), style = Stroke(width = 4f))
+
+                highlightedEdges.forEach { (path, color) ->
+                    val highlightColor = when (color) {
+                        Color(0xFFCE93D8) -> Color(0xFF8E24AA)
+                        Color(0xFF90CAF9) -> Color(0xFF1976D2)
+                        Color(0xFFA5D6A7) -> Color(0xFF388E3C)
+                        Color(0xFFFFCC80) -> Color(0xFFF57C00)
+                        else              -> Color(0xFF1976D2)
+                    }
+                    drawPath(path, highlightColor, style = Stroke(width = 3f))
                 }
             }
 
@@ -271,7 +288,7 @@ fun GraphCanvas(
                                         }
                                     }
                                 }
-                                .clickable { onSelectionChange(setOf(node.id)) }
+                                // Removed redundant .clickable to avoid double selection triggers
                         ) {
                             when (node) {
                                 is GraphNode.MetadataNode -> MetadataCard(node) { onSelectionChange(setOf(it.id)) }

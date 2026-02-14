@@ -11,6 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerIcon
@@ -19,6 +20,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import model.GraphModel
@@ -64,6 +66,7 @@ fun DetailTable(content: @Composable () -> Unit) {
     Column(
         Modifier
             .fillMaxWidth()
+            .clip(RoundedCornerShape(4.dp))
             .border(1.dp, Color.LightGray, RoundedCornerShape(4.dp))
     ) {
         content()
@@ -77,24 +80,30 @@ fun DetailRow(key: String, value: String, isHeader: Boolean = false) {
         Modifier
             .fillMaxWidth()
             .background(bgColor)
-            .border(0.5.dp, Color(0xFFE0E0E0))
-            .padding(8.dp)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             text = key,
-            modifier = Modifier.weight(0.35f),
-            fontSize = 11.sp,
-            fontWeight = if (isHeader) FontWeight.Bold else FontWeight.SemiBold,
-            color = Color.DarkGray
+            modifier = Modifier.weight(0.4f),
+            fontSize = 12.sp,
+            fontWeight = if (isHeader) FontWeight.Bold else FontWeight.Medium,
+            color = if (isHeader) Color.Black else Color.Gray
         )
+        Box(Modifier.width(1.dp).height(16.dp).background(Color(0xFFE0E0E0)))
+        Spacer(Modifier.width(12.dp))
         Text(
             text = value,
-            modifier = Modifier.weight(0.65f),
-            fontSize = 11.sp,
+            modifier = Modifier.weight(0.6f),
+            fontSize = 12.sp,
+            fontWeight = if (isHeader) FontWeight.Bold else FontWeight.Normal,
             fontFamily = if (isHeader) null else FontFamily.Monospace,
-            color = Color.Black
+            color = Color.Black,
+            maxLines = 10,
+            overflow = TextOverflow.Ellipsis
         )
     }
+    HorizontalDivider(color = Color(0xFFE0E0E0), thickness = 0.5.dp)
 }
 
 @Composable
@@ -109,6 +118,13 @@ fun App() {
 
     var showRows by remember { mutableStateOf(prefs.getBoolean(PREF_SHOW_ROWS, false)) }
     var isSelectMode by remember { mutableStateOf(false) }
+    var zoom by remember { mutableStateOf(1f) }
+
+    // Filtering states
+    var showMetadata by remember { mutableStateOf(true) }
+    var showSnapshots by remember { mutableStateOf(true) }
+    var showManifests by remember { mutableStateOf(true) }
+    var showDataFiles by remember { mutableStateOf(true) }
 
     val sessionCache = remember { mutableMapOf<String, TableSession>() }
     val coroutineScope = rememberCoroutineScope()
@@ -197,7 +213,7 @@ fun App() {
 
                 Spacer(Modifier.width(16.dp))
 
-                // Mode Toggle
+                // Selection Mode Toggle
                 Button(
                     onClick = { isSelectMode = !isSelectMode },
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
@@ -207,6 +223,16 @@ fun App() {
                     )
                 ) {
                     Text(if (isSelectMode) "✅ Selection Mode" else "✋ Pan Mode", fontSize = 12.sp)
+                }
+
+                Spacer(Modifier.width(8.dp))
+
+                // Zoom Controls
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = { zoom = (zoom * 1.2f).coerceAtMost(3f) }) { Text("➕", fontSize = 12.sp) }
+                    Text("${(zoom * 100).toInt()}%", fontSize = 11.sp, modifier = Modifier.width(40.dp))
+                    TextButton(onClick = { zoom = (zoom / 1.2f).coerceAtLeast(0.1f) }) { Text("➖", fontSize = 12.sp) }
+                    TextButton(onClick = { zoom = 1f }) { Text("Reset", fontSize = 11.sp) }
                 }
 
                 Spacer(Modifier.weight(1f))
@@ -234,6 +260,14 @@ fun App() {
                                 prefs.putBoolean(PREF_SHOW_ROWS, it)
                                 if (selectedTable != null) loadTable(selectedTable!!, it)
                             },
+                            showMetadata = showMetadata,
+                            onShowMetadataChange = { showMetadata = it },
+                            showSnapshots = showSnapshots,
+                            onShowSnapshotsChange = { showSnapshots = it },
+                            showManifests = showManifests,
+                            onShowManifestsChange = { showManifests = it },
+                            showDataFiles = showDataFiles,
+                            onShowDataFilesChange = { showDataFiles = it },
                             onTableSelect = { newTable ->
                                 if (selectedTable != null && graphModel != null) {
                                     val oldKey = "$selectedTable-rows_$showRows"
@@ -256,10 +290,27 @@ fun App() {
                 // 2. Main Canvas
                 Box(Modifier.weight(1f).fillMaxHeight().clipToBounds()) {
                     if (graphModel != null) {
+                        val filteredNodes = graphModel!!.nodes.filter { node ->
+                            when (node) {
+                                is GraphNode.MetadataNode -> showMetadata
+                                is GraphNode.SnapshotNode -> showSnapshots
+                                is GraphNode.ManifestNode -> showManifests
+                                is GraphNode.FileNode     -> showDataFiles
+                                is GraphNode.RowNode      -> showDataFiles // Rows are tied to files
+                            }
+                        }
+                        val filteredNodeIds = filteredNodes.map { it.id }.toSet()
+                        val filteredEdges = graphModel!!.edges.filter { edge ->
+                            edge.fromId in filteredNodeIds && edge.toId in filteredNodeIds
+                        }
+                        val filteredGraph = graphModel!!.copy(nodes = filteredNodes, edges = filteredEdges)
+
                         GraphCanvas(
-                            graph = graphModel!!,
+                            graph = filteredGraph,
                             selectedNodeIds = selectedNodeIds,
                             isSelectMode = isSelectMode,
+                            zoom = zoom,
+                            onZoomChange = { zoom = it },
                             onSelectionChange = { selectedNodeIds = it }
                         )
                     } else if (warehousePath != null && availableTables.isEmpty()) {
@@ -319,41 +370,45 @@ fun App() {
                                                 DetailRow("Property", "Value", isHeader = true)
                                                 DetailRow("File Name", node.fileName)
                                                 DetailRow("Format Version", "${node.data.formatVersion}")
-                                                DetailRow("Table UUID", "${node.data.tableUuid}")
-                                                DetailRow("Last Updated", "${node.data.lastUpdatedMs}")
-                                                DetailRow("Last Seq. Num.", "${node.data.lastSequenceNumber}")
-                                                DetailRow("Last Column ID", "${node.data.lastColumnId}")
+                                                DetailRow("Table UUID", "${node.data.tableUuid ?: "N/A"}")
+                                                DetailRow("Location", "${node.data.location ?: "N/A"}")
+                                                DetailRow("Last Seq. Num.", "${node.data.lastSequenceNumber ?: "N/A"}")
+                                                DetailRow("Last Updated", "${node.data.lastUpdatedMs ?: "N/A"}")
+                                                DetailRow("Last Column ID", "${node.data.lastColumnId ?: "N/A"}")
                                                 DetailRow("Current Snap.", "${node.data.currentSnapshotId ?: "None"}")
                                                 DetailRow("Total Snaps.", "${node.data.snapshots.size}")
-                                                DetailRow("Location", "${node.data.location}")
                                             }
 
                                             is GraphNode.SnapshotNode -> DetailTable {
                                                 DetailRow("Property", "Value", isHeader = true)
                                                 DetailRow("Snapshot ID", "${node.data.snapshotId}")
                                                 DetailRow("Parent ID", "${node.data.parentSnapshotId ?: "None"}")
-                                                DetailRow("Timestamp", "${node.data.timestampMs}")
+                                                DetailRow("Timestamp", "${node.data.timestampMs ?: "N/A"}")
+                                                DetailRow("Manifest List", "${node.data.manifestList?.substringAfterLast("/") ?: "N/A"}")
                                                 node.data.summary.forEach { (k, v) ->
                                                     DetailRow("Summary: $k", v)
                                                 }
-                                                DetailRow("Manifest List", "${node.data.manifestList?.substringAfterLast("/")}")
                                             }
 
                                             is GraphNode.ManifestNode -> DetailTable {
-                                                val contentType = if (node.data.content == 1) "Delete" else "Data"
+                                                val contentType = when (node.data.content) {
+                                                    1 -> "Deletes"
+                                                    0 -> "Data"
+                                                    else -> "Unknown (${node.data.content})"
+                                                }
                                                 DetailRow("Property", "Value", isHeader = true)
                                                 DetailRow("Content Type", contentType)
-                                                DetailRow("Sequence Num.", "${node.data.sequenceNumber}")
-                                                DetailRow("Min Sequence Num.", "${node.data.cominSequenceNumber}")
-                                                DetailRow("Partition Spec ID", "${node.data.partitionSpecId}")
-                                                DetailRow("Added Snapshot", "${node.data.addedSnapshotId}")
-                                                DetailRow("Added Files", "${node.data.addedFilesCount}")
-                                                DetailRow("Existing Files", "${node.data.existingFilesCount}")
-                                                DetailRow("Deleted Files", "${node.data.deletedFilesCount}")
-                                                DetailRow("Added Rows", "${node.data.addedRowsCount}")
-                                                DetailRow("Existing Rows", "${node.data.existingRowsCount}")
-                                                DetailRow("Deleted Rows", "${node.data.deletedRowsCount}")
-                                                DetailRow("Path", "${node.data.manifestPath?.substringAfterLast("/")}")
+                                                DetailRow("Sequence Num.", "${node.data.sequenceNumber ?: "N/A"}")
+                                                DetailRow("Min Sequence Num.", "${node.data.cominSequenceNumber ?: "N/A"}")
+                                                DetailRow("Partition Spec ID", "${node.data.partitionSpecId ?: "N/A"}")
+                                                DetailRow("Added Snapshot", "${node.data.addedSnapshotId ?: "N/A"}")
+                                                DetailRow("Added Files", "${node.data.addedFilesCount ?: 0}")
+                                                DetailRow("Existing Files", "${node.data.existingFilesCount ?: 0}")
+                                                DetailRow("Deleted Files", "${node.data.deletedFilesCount ?: 0}")
+                                                DetailRow("Added Rows", "${node.data.addedRowsCount ?: 0}")
+                                                DetailRow("Existing Rows", "${node.data.existingRowsCount ?: 0}")
+                                                DetailRow("Deleted Rows", "${node.data.deletedRowsCount ?: 0}")
+                                                DetailRow("Path", "${node.data.manifestPath?.substringAfterLast("/") ?: "N/A"}")
                                             }
 
                                             is GraphNode.FileNode -> DetailTable {
@@ -363,13 +418,14 @@ fun App() {
                                                     else -> "Data"
                                                 }
                                                 DetailRow("Property", "Value", isHeader = true)
+                                                DetailRow("Simple ID", "${node.simpleId}")
                                                 DetailRow("Content Type", contentType)
-                                                DetailRow("File Format", "${node.data.fileFormat}")
-                                                DetailRow("Record Count", "${node.data.recordCount}")
-                                                DetailRow("File Size", "${node.data.fileSizeInBytes} bytes")
-                                                DetailRow("Sort Order ID", "${node.data.sorderOrderId}")
+                                                DetailRow("File Format", "${node.data.fileFormat ?: "N/A"}")
+                                                DetailRow("Record Count", "${node.data.recordCount ?: 0}")
+                                                DetailRow("File Size", "${node.data.fileSizeInBytes ?: 0} bytes")
+                                                DetailRow("Sort Order ID", "${node.data.sorderOrderId ?: "N/A"}")
                                                 DetailRow("Split Offsets", node.data.splitOffsets.joinToString(", "))
-                                                DetailRow("Path", "${node.data.filePath?.substringAfterLast("/")}")
+                                                DetailRow("Path", "${node.data.filePath ?: "N/A"}")
                                             }
 
                                             is GraphNode.RowNode -> DetailTable {

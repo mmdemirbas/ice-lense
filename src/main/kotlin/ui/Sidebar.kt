@@ -26,6 +26,14 @@ fun Sidebar(
     selectedTable: String?,
     showRows: Boolean,
     onShowRowsChange: (Boolean) -> Unit,
+    showMetadata: Boolean,
+    onShowMetadataChange: (Boolean) -> Unit,
+    showSnapshots: Boolean,
+    onShowSnapshotsChange: (Boolean) -> Unit,
+    showManifests: Boolean,
+    onShowManifestsChange: (Boolean) -> Unit,
+    showDataFiles: Boolean,
+    onShowDataFilesChange: (Boolean) -> Unit,
     onTableSelect: (String) -> Unit,
     onWarehouseChange: (String) -> Unit,
 ) {
@@ -51,12 +59,29 @@ fun Sidebar(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Toggle for debug rows
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(checked = showRows, onCheckedChange = onShowRowsChange)
-            Text("Show Data Rows (Debug)", fontSize = 11.sp, color = Color.DarkGray)
+        // Filtering
+        Text("FILTER NODES", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+        Column {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = showMetadata, onCheckedChange = onShowMetadataChange, modifier = Modifier.size(32.dp))
+                Text("Metadata", fontSize = 11.sp)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = showSnapshots, onCheckedChange = onShowSnapshotsChange, modifier = Modifier.size(32.dp))
+                Text("Snapshots", fontSize = 11.sp)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = showManifests, onCheckedChange = onShowManifestsChange, modifier = Modifier.size(32.dp))
+                Text("Manifests", fontSize = 11.sp)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = showDataFiles, onCheckedChange = onShowDataFilesChange, modifier = Modifier.size(32.dp))
+                Text("Data Files", fontSize = 11.sp)
+            }
         }
 
+        Spacer(modifier = Modifier.height(8.dp))
+        HorizontalDivider()
         Spacer(modifier = Modifier.height(8.dp))
 
         if (warehousePath != null) {

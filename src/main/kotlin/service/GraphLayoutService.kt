@@ -51,38 +51,43 @@ object GraphLayoutService {
             val fileName = metadata.path.fileName.toString()
             val meta = metadata.metadata
             val mId = "meta_${fileName}"
-            elkNodes[mId] = createElkNode(root, mId, 260.0, 120.0)
-            logicalNodes[mId] = GraphNode.MetadataNode(mId, fileName, meta)
+            if (!elkNodes.containsKey(mId)) {
+                elkNodes[mId] = createElkNode(root, mId, 260.0, 120.0)
+                logicalNodes[mId] = GraphNode.MetadataNode(mId, fileName, meta)
+            }
 
             // Link consecutive metadata files
             if (prevMetaId != null) {
-                val prevElk = elkNodes[prevMetaId]
-                val currElk = elkNodes[mId]
-                if (prevElk != null && currElk != null) {
-                    ElkGraphUtil.createSimpleEdge(prevElk, currElk)
-                    edges.add(GraphEdge("e_meta_seq_$mId", prevMetaId!!, mId, isSibling = true))
-                }
+                // We keep the logical edge for drawing, but NOT the ELK edge to avoid horizontal layout
+                edges.add(GraphEdge("e_meta_seq_$mId", prevMetaId!!, mId, isSibling = true))
             }
             prevMetaId = mId
 
             metadata.snapshots.forEach { snapshot ->
                 val snap = snapshot.metadata
                 val sId = "snap_${snap.snapshotId}"
-                elkNodes[sId] = createElkNode(root, sId, 220.0, 100.0)
-                logicalNodes[sId] = GraphNode.SnapshotNode(sId, snap)
+                if (!elkNodes.containsKey(sId)) {
+                    elkNodes[sId] = createElkNode(root, sId, 220.0, 100.0)
+                    logicalNodes[sId] = GraphNode.SnapshotNode(sId, snap)
+                }
 
+                val snapEdgeId = "e_snap_${mId}_to_$sId"
                 ElkGraphUtil.createSimpleEdge(elkNodes[mId], elkNodes[sId])
-                edges.add(GraphEdge("e_snap_$sId", mId, sId))
+                edges.add(GraphEdge(snapEdgeId, mId, sId))
 
                 val manifests = snapshot.manifestLists
-                manifests.forEachIndexed { idx, unifiedManifest ->
+                manifests.forEach { unifiedManifest ->
                     val manifest = unifiedManifest.metadata
-                    val manId = "man_${snap.snapshotId}_$idx"
-                    elkNodes[manId] = createElkNode(root, manId, 200.0, 80.0)
-                    logicalNodes[manId] = GraphNode.ManifestNode(manId, manifest)
+                    val rawManPath = manifest.manifestPath ?: "unknown_${UUID.randomUUID()}"
+                    val manId = "man_${rawManPath.hashCode()}"
+                    if (!elkNodes.containsKey(manId)) {
+                        elkNodes[manId] = createElkNode(root, manId, 200.0, 80.0)
+                        logicalNodes[manId] = GraphNode.ManifestNode(manId, manifest)
+                    }
 
+                    val manEdgeId = "e_man_${sId}_to_$manId"
                     ElkGraphUtil.createSimpleEdge(elkNodes[sId], elkNodes[manId])
-                    edges.add(GraphEdge("e_man_$manId", sId, manId))
+                    edges.add(GraphEdge(manEdgeId, sId, manId))
 
                     val manifestPath = manifest.manifestPath
                     if (manifestPath != null) {
