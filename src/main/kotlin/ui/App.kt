@@ -36,6 +36,16 @@ import java.util.prefs.Preferences
 private val prefs = Preferences.userRoot().node("com.github.mmdemirbas.icelens")
 private const val PREF_WAREHOUSE_PATH = "last_warehouse_path"
 private const val PREF_SHOW_ROWS = "show_data_rows"
+private const val PREF_LEFT_PANE_WIDTH = "left_pane_width"
+private const val PREF_RIGHT_PANE_WIDTH = "right_pane_width"
+private const val PREF_LEFT_PANE_VISIBLE = "left_pane_visible"
+private const val PREF_RIGHT_PANE_VISIBLE = "right_pane_visible"
+private const val PREF_ZOOM = "zoom"
+private const val PREF_SHOW_METADATA = "show_metadata"
+private const val PREF_SHOW_SNAPSHOTS = "show_snapshots"
+private const val PREF_SHOW_MANIFESTS = "show_manifests"
+private const val PREF_SHOW_DATA_FILES = "show_data_files"
+private const val PREF_IS_SELECT_MODE = "is_select_mode"
 
 // Data class to hold cached table sessions
 data class TableSession(
@@ -117,22 +127,22 @@ fun App() {
     var errorMsg by remember { mutableStateOf<String?>(null) }
 
     var showRows by remember { mutableStateOf(prefs.getBoolean(PREF_SHOW_ROWS, true)) }
-    var isSelectMode by remember { mutableStateOf(false) }
-    var zoom by remember { mutableStateOf(1f) }
+    var isSelectMode by remember { mutableStateOf(prefs.getBoolean(PREF_IS_SELECT_MODE, false)) }
+    var zoom by remember { mutableStateOf(prefs.getFloat(PREF_ZOOM, 1f)) }
 
     // Filtering states
-    var showMetadata by remember { mutableStateOf(true) }
-    var showSnapshots by remember { mutableStateOf(true) }
-    var showManifests by remember { mutableStateOf(true) }
-    var showDataFiles by remember { mutableStateOf(true) }
+    var showMetadata by remember { mutableStateOf(prefs.getBoolean(PREF_SHOW_METADATA, true)) }
+    var showSnapshots by remember { mutableStateOf(prefs.getBoolean(PREF_SHOW_SNAPSHOTS, true)) }
+    var showManifests by remember { mutableStateOf(prefs.getBoolean(PREF_SHOW_MANIFESTS, true)) }
+    var showDataFiles by remember { mutableStateOf(prefs.getBoolean(PREF_SHOW_DATA_FILES, true)) }
 
     val sessionCache = remember { mutableMapOf<String, TableSession>() }
     val coroutineScope = rememberCoroutineScope()
 
-    var leftPaneWidth by remember { mutableStateOf(250.dp) }
-    var rightPaneWidth by remember { mutableStateOf(300.dp) }
-    var isLeftPaneVisible by remember { mutableStateOf(true) }
-    var isRightPaneVisible by remember { mutableStateOf(true) }
+    var leftPaneWidth by remember { mutableStateOf(prefs.getFloat(PREF_LEFT_PANE_WIDTH, 250f).dp) }
+    var rightPaneWidth by remember { mutableStateOf(prefs.getFloat(PREF_RIGHT_PANE_WIDTH, 300f).dp) }
+    var isLeftPaneVisible by remember { mutableStateOf(prefs.getBoolean(PREF_LEFT_PANE_VISIBLE, true)) }
+    var isRightPaneVisible by remember { mutableStateOf(prefs.getBoolean(PREF_RIGHT_PANE_VISIBLE, true)) }
     val density = LocalDensity.current
 
     // Logic to scan a warehouse for valid Iceberg tables
@@ -207,7 +217,10 @@ fun App() {
                     .background(Color(0xFFEEEEEE))
                     .padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically
             ) {
-                TextButton(onClick = { isLeftPaneVisible = !isLeftPaneVisible }) {
+                TextButton(onClick = {
+                    isLeftPaneVisible = !isLeftPaneVisible
+                    prefs.putBoolean(PREF_LEFT_PANE_VISIBLE, isLeftPaneVisible)
+                }) {
                     Text(if (isLeftPaneVisible) "◀ Hide Sidebar" else "Sidebar ▶", fontSize = 12.sp)
                 }
 
@@ -215,7 +228,10 @@ fun App() {
 
                 // Selection Mode Toggle
                 Button(
-                    onClick = { isSelectMode = !isSelectMode },
+                    onClick = {
+                        isSelectMode = !isSelectMode
+                        prefs.putBoolean(PREF_IS_SELECT_MODE, isSelectMode)
+                    },
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (isSelectMode) Color(0xFFE3F2FD) else Color.Transparent,
@@ -229,14 +245,26 @@ fun App() {
 
                 // Zoom Controls
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = { zoom = (zoom * 1.2f).coerceAtMost(3f) }) { Text("➕", fontSize = 12.sp) }
+                    TextButton(onClick = {
+                        zoom = (zoom * 1.2f).coerceAtMost(3f)
+                        prefs.putFloat(PREF_ZOOM, zoom)
+                    }) { Text("➕", fontSize = 12.sp) }
                     Text("${(zoom * 100).toInt()}%", fontSize = 11.sp, modifier = Modifier.width(40.dp))
-                    TextButton(onClick = { zoom = (zoom / 1.2f).coerceAtLeast(0.1f) }) { Text("➖", fontSize = 12.sp) }
-                    TextButton(onClick = { zoom = 1f }) { Text("Reset", fontSize = 11.sp) }
+                    TextButton(onClick = {
+                        zoom = (zoom / 1.2f).coerceAtLeast(0.1f)
+                        prefs.putFloat(PREF_ZOOM, zoom)
+                    }) { Text("➖", fontSize = 12.sp) }
+                    TextButton(onClick = {
+                        zoom = 1f
+                        prefs.putFloat(PREF_ZOOM, zoom)
+                    }) { Text("Reset", fontSize = 11.sp) }
                 }
 
                 Spacer(Modifier.weight(1f))
-                TextButton(onClick = { isRightPaneVisible = !isRightPaneVisible }) {
+                TextButton(onClick = {
+                    isRightPaneVisible = !isRightPaneVisible
+                    prefs.putBoolean(PREF_RIGHT_PANE_VISIBLE, isRightPaneVisible)
+                }) {
                     Text(
                         if (isRightPaneVisible) "Hide Inspector ▶" else "◀ Inspector",
                         fontSize = 12.sp
@@ -261,13 +289,25 @@ fun App() {
                                 if (selectedTable != null) loadTable(selectedTable!!, it)
                             },
                             showMetadata = showMetadata,
-                            onShowMetadataChange = { showMetadata = it },
+                            onShowMetadataChange = {
+                                showMetadata = it
+                                prefs.putBoolean(PREF_SHOW_METADATA, it)
+                            },
                             showSnapshots = showSnapshots,
-                            onShowSnapshotsChange = { showSnapshots = it },
+                            onShowSnapshotsChange = {
+                                showSnapshots = it
+                                prefs.putBoolean(PREF_SHOW_SNAPSHOTS, it)
+                            },
                             showManifests = showManifests,
-                            onShowManifestsChange = { showManifests = it },
+                            onShowManifestsChange = {
+                                showManifests = it
+                                prefs.putBoolean(PREF_SHOW_MANIFESTS, it)
+                            },
                             showDataFiles = showDataFiles,
-                            onShowDataFilesChange = { showDataFiles = it },
+                            onShowDataFilesChange = {
+                                showDataFiles = it
+                                prefs.putBoolean(PREF_SHOW_DATA_FILES, it)
+                            },
                             onTableSelect = { newTable ->
                                 if (selectedTable != null && graphModel != null) {
                                     val oldKey = "$selectedTable-rows_$showRows"
@@ -284,6 +324,7 @@ fun App() {
                     DraggableDivider(onDrag = { delta ->
                         val deltaDp = with(density) { delta.toDp() }
                         leftPaneWidth = (leftPaneWidth + deltaDp).coerceIn(150.dp, 500.dp)
+                        prefs.putFloat(PREF_LEFT_PANE_WIDTH, leftPaneWidth.value)
                     })
                 }
 
@@ -310,7 +351,10 @@ fun App() {
                             selectedNodeIds = selectedNodeIds,
                             isSelectMode = isSelectMode,
                             zoom = zoom,
-                            onZoomChange = { zoom = it },
+                            onZoomChange = {
+                                zoom = it
+                                prefs.putFloat(PREF_ZOOM, it)
+                            },
                             onSelectionChange = { selectedNodeIds = it }
                         )
                     } else if (warehousePath != null && availableTables.isEmpty()) {
@@ -336,6 +380,7 @@ fun App() {
                         val deltaDp = with(density) { delta.toDp() }
                         // Subtracting delta because dragging left increases the right pane's width
                         rightPaneWidth = (rightPaneWidth - deltaDp).coerceIn(200.dp, 600.dp)
+                        prefs.putFloat(PREF_RIGHT_PANE_WIDTH, rightPaneWidth.value)
                     })
 
                     Column(Modifier.width(rightPaneWidth).fillMaxHeight().padding(8.dp)) {

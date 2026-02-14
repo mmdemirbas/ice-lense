@@ -6,8 +6,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -270,6 +270,9 @@ fun GraphCanvas(
                                         }
                                     }
                                 }
+                                .pointerInput(node.id + "_interaction") {
+                                    detectTapGestures(onTap = { onSelectionChange(setOf(node.id)) })
+                                }
                                 .pointerInput(node.id + "_drag") {
                                     detectDragGestures { change, dragAmount ->
                                         change.consume()
@@ -291,11 +294,11 @@ fun GraphCanvas(
                                 // Removed redundant .clickable to avoid double selection triggers
                         ) {
                             when (node) {
-                                is GraphNode.MetadataNode -> MetadataCard(node) { onSelectionChange(setOf(it.id)) }
-                                is GraphNode.SnapshotNode -> SnapshotCard(node) { onSelectionChange(setOf(it.id)) }
-                                is GraphNode.ManifestNode -> ManifestCard(node) { onSelectionChange(setOf(it.id)) }
-                                is GraphNode.FileNode     -> FileCard(node) { onSelectionChange(setOf(it.id)) }
-                                is GraphNode.RowNode      -> RowCard(node) { onSelectionChange(setOf(it.id)) }
+                                is GraphNode.MetadataNode -> MetadataCard(node)
+                                is GraphNode.SnapshotNode -> SnapshotCard(node)
+                                is GraphNode.ManifestNode -> ManifestCard(node)
+                                is GraphNode.FileNode     -> FileCard(node)
+                                is GraphNode.RowNode      -> RowCard(node)
                             }
                         }
                     }

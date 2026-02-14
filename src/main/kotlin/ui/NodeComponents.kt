@@ -3,7 +3,6 @@ package ui
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -57,13 +56,12 @@ fun getGraphNodeBorderColor(node: GraphNode): Color = when (node) {
 }
 
 @Composable
-fun MetadataCard(node: GraphNode.MetadataNode, onClick: (GraphNode) -> Unit) {
+fun MetadataCard(node: GraphNode.MetadataNode) {
     Box(
         modifier = Modifier
         .size(node.width.dp, node.height.dp)
         .background(getGraphNodeColor(node), RoundedCornerShape(8.dp))
         .border(BorderStroke(2.dp, getGraphNodeBorderColor(node)), RoundedCornerShape(8.dp))
-        .clickable { onClick(node) }
         .padding(8.dp)) {
         Column {
             Text(
@@ -81,13 +79,12 @@ fun MetadataCard(node: GraphNode.MetadataNode, onClick: (GraphNode) -> Unit) {
 }
 
 @Composable
-fun SnapshotCard(node: GraphNode.SnapshotNode, onClick: (GraphNode) -> Unit) {
+fun SnapshotCard(node: GraphNode.SnapshotNode) {
     Box(
         modifier = Modifier
         .size(node.width.dp, node.height.dp)
         .background(Color(0xFFBBDEFB), RoundedCornerShape(8.dp))
         .border(BorderStroke(2.dp, Color(0xFF1976D2)), RoundedCornerShape(8.dp))
-        .clickable { onClick(node) }
         .padding(8.dp)) {
         Column {
             Text("SNAPSHOT", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.DarkGray)
@@ -98,7 +95,7 @@ fun SnapshotCard(node: GraphNode.SnapshotNode, onClick: (GraphNode) -> Unit) {
 }
 
 @Composable
-fun ManifestCard(node: GraphNode.ManifestNode, onClick: (GraphNode) -> Unit) {
+fun ManifestCard(node: GraphNode.ManifestNode) {
     val color = if (node.data.content == 1) Color(0xFFFFCDD2) else Color(0xFFC8E6C9)
     val borderColor = if (node.data.content == 1) Color(0xFFD32F2F) else Color(0xFF388E3C)
 
@@ -107,7 +104,6 @@ fun ManifestCard(node: GraphNode.ManifestNode, onClick: (GraphNode) -> Unit) {
         .size(node.width.dp, node.height.dp)
         .background(color, RoundedCornerShape(8.dp))
         .border(BorderStroke(2.dp, borderColor), RoundedCornerShape(8.dp))
-        .clickable { onClick(node) }
         .padding(8.dp)) {
         Column {
             Text(
@@ -121,7 +117,7 @@ fun ManifestCard(node: GraphNode.ManifestNode, onClick: (GraphNode) -> Unit) {
 }
 
 @Composable
-fun FileCard(node: GraphNode.FileNode, onClick: (GraphNode) -> Unit) {
+fun FileCard(node: GraphNode.FileNode) {
     // V2 Content: 0=Data, 1=Pos Delete, 2=Eq Delete
     val isDelete = (node.data.content ?: 0) > 0
     val bg = if (isDelete) Color(0xFFEF9A9A) else Color(0xFFE0F2F1)
@@ -131,7 +127,6 @@ fun FileCard(node: GraphNode.FileNode, onClick: (GraphNode) -> Unit) {
         .size(node.width.dp, node.height.dp)
         .background(bg, RoundedCornerShape(4.dp))
         .border(1.dp, Color.Gray, RoundedCornerShape(4.dp))
-        .clickable { onClick(node) }
         .padding(4.dp)) {
         Column {
             Text(
@@ -146,13 +141,12 @@ fun FileCard(node: GraphNode.FileNode, onClick: (GraphNode) -> Unit) {
 }
 
 @Composable
-fun RowCard(node: GraphNode.RowNode, onClick: (GraphNode) -> Unit) {
+fun RowCard(node: GraphNode.RowNode) {
     Box(
         modifier = Modifier
         .size(node.width.dp, node.height.dp)
         .background(getGraphNodeColor(node), RoundedCornerShape(4.dp))
         .border(1.dp, getGraphNodeBorderColor(node), RoundedCornerShape(4.dp))
-        .clickable { onClick(node) }
         .padding(6.dp)) {
         Column(Modifier.fillMaxSize()) {
             Text(
