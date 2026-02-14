@@ -41,15 +41,16 @@ dependencies {
 compose.desktop {
     application {
         mainClass = "MainKt"
+        buildTypes.release.proguard {
+            isEnabled.set(false)
+        }
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "IcebergLens"
+            modules("java.sql")
             macOS {
                 bundleID = "com.iceberglens.desktop"
             }
-        }
-        buildTypes.release.proguard {
-            configurationFiles.from(project.file("proguard-rules.pro"))
         }
     }
 }

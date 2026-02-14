@@ -181,6 +181,17 @@ fun scanForTables(warehouseDir: File): List<String> {
     }?.map { it.name }?.sorted() ?: emptyList()
 }
 
+fun canonicalWorkspacePath(path: String): String =
+    runCatching { File(path).canonicalPath }.getOrElse { File(path).absolutePath }
+
+fun deduplicateWorkspaceItems(items: List<WorkspaceItem>): List<WorkspaceItem> {
+    val seen = mutableSetOf<String>()
+    return items.filter { item ->
+        val key = canonicalWorkspacePath(item.path)
+        seen.add(key)
+    }
+}
+
 @Composable
 fun App() {
     var workspaceItems by remember {
@@ -191,7 +202,11 @@ fun App() {
                 item.copy(tables = scanForTables(File(item.path)))
             } else item
         }
-        mutableStateOf(refreshed)
+        val deduplicated = deduplicateWorkspaceItems(refreshed)
+        if (deduplicated.size != refreshed.size) {
+            prefs.put(PREF_WORKSPACE_ITEMS, deduplicated.joinToString(";") { it.serialize() })
+        }
+        mutableStateOf(deduplicated)
     }
 
     var selectedTablePath by remember { mutableStateOf<String?>(null) }
@@ -273,9 +288,10 @@ fun App() {
     }
 
     fun saveWorkspace(items: List<WorkspaceItem>) {
-        workspaceItems = items
-        prefs.put(PREF_WORKSPACE_ITEMS, items.joinToString(";") { it.serialize() })
-        val validPaths = items.map { it.path }.toSet()
+        val deduplicated = deduplicateWorkspaceItems(items)
+        workspaceItems = deduplicated
+        prefs.put(PREF_WORKSPACE_ITEMS, deduplicated.joinToString(";") { it.serialize() })
+        val validPaths = deduplicated.map { it.path }.toSet()
         setWorkspaceExpandedPaths(workspaceExpandedPaths.filter { it in validPaths }.toSet())
     }
 
@@ -534,10 +550,13 @@ fun App() {
                 onAddRoot = { path ->
                     val file = File(path)
                     if (file.exists() && file.isDirectory) {
+                        val normalizedPath = canonicalWorkspacePath(path)
+                        if (workspaceItems.any { canonicalWorkspacePath(it.path) == normalizedPath }) return@WorkspacePanel
+
                         val newItem = if (isIcebergTable(file)) {
-                            WorkspaceItem.SingleTable(path, file.name)
+                            WorkspaceItem.SingleTable(normalizedPath, file.name)
                         } else {
-                            WorkspaceItem.Warehouse(path, file.name, scanForTables(file))
+                            WorkspaceItem.Warehouse(normalizedPath, file.name, scanForTables(file))
                         }
                         saveWorkspace(workspaceItems + newItem)
                     }
