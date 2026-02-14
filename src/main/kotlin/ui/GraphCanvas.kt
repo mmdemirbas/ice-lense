@@ -330,8 +330,8 @@ fun GraphCanvas(
                                 .pointerInput(node.id + "_drag") {
                                     detectDragGestures { change, dragAmount ->
                                         change.consume()
-                                        val dx = dragAmount.x / localZoom
-                                        val dy = dragAmount.y / localZoom
+                                        val dx = dragAmount.x
+                                        val dy = dragAmount.y
 
                                         if (selectedNodeIds.contains(node.id)) {
                                             graph.nodes.filter { it.id in selectedNodeIds }.forEach { n ->
