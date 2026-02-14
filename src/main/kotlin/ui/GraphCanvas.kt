@@ -2,13 +2,12 @@ package ui
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.VectorConverter
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
+import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -21,13 +20,17 @@ import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import model.GraphModel
 import model.GraphNode
 import kotlin.math.min
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun GraphCanvas(
     graph: GraphModel,
@@ -166,91 +169,131 @@ fun GraphCanvas(
             }
 
             graph.nodes.forEach { node ->
-                Box(modifier = Modifier.offset { IntOffset(node.x.toInt(), node.y.toInt()) }
-                    // Hover detection
-                    .pointerInput(node.id) {
-                        awaitPointerEventScope {
-                            while (true) {
-                                val event = awaitPointerEvent()
-                                if (event.type == PointerEventType.Enter) {
-                                    hoveredNodeId = node.id
-                                } else if (event.type == PointerEventType.Exit) {
-                                    hoveredNodeId = null
+                Box(modifier = Modifier.offset { IntOffset(node.x.toInt(), node.y.toInt()) }) {
+                    TooltipArea(
+                        tooltip = {
+                            Box(
+                                modifier = Modifier
+                                    .background(Color(0xEE333333), RoundedCornerShape(4.dp))
+                                    .border(1.dp, Color.Gray, RoundedCornerShape(4.dp))
+                                    .padding(8.dp)
+                            ) {
+                                Text(
+                                    text = getNodeTooltipText(node),
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }, delayMillis = 400, // Trigger after 400ms hover
+                        tooltipPlacement = TooltipPlacement.CursorPoint(
+                            alignment = Alignment.BottomEnd, offset = DpOffset(16.dp, 16.dp)
+                        )
+                    ) {
+                        Box(modifier = Modifier.pointerInput(node.id) {
+                                awaitPointerEventScope {
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        if (event.type == PointerEventType.Enter) {
+                                            hoveredNodeId = node.id
+                                        } else if (event.type == PointerEventType.Exit) {
+                                            hoveredNodeId = null
+                                        }
+                                    }
                                 }
+                            }.pointerInput(node.id + "_drag") {
+                                detectDragGestures { change, dragAmount ->
+                                    change.consume()
+                                    node.x += dragAmount.x / zoom
+                                    node.y += dragAmount.y / zoom
+                                }
+                            }) {
+                            when (node) {
+                                is GraphNode.MetadataNode -> MetadataCard(node, onNodeClick)
+                                is GraphNode.SnapshotNode -> SnapshotCard(node, onNodeClick)
+                                is GraphNode.ManifestNode -> ManifestCard(node, onNodeClick)
+                                is GraphNode.FileNode     -> FileCard(node, onNodeClick)
+                                is GraphNode.RowNode      -> RowCard(node, onNodeClick)
                             }
                         }
-                    }.pointerInput(node.id + "_drag") {
-                        detectDragGestures { change, dragAmount ->
-                            change.consume()
-                            node.x += dragAmount.x / zoom
-                            node.y += dragAmount.y / zoom
-                        }
-                    }) {
-                    when (node) {
-                        is GraphNode.MetadataNode -> MetadataCard(node, onNodeClick)
-                        is GraphNode.SnapshotNode -> SnapshotCard(node, onNodeClick)
-                        is GraphNode.ManifestNode -> ManifestCard(node, onNodeClick)
-                        is GraphNode.FileNode     -> FileCard(node, onNodeClick)
-                        is GraphNode.RowNode      -> RowCard(node, onNodeClick) // NEW
                     }
                 }
             }
-        }
 
-        // Minimap Radar UI
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(16.dp)
-                .size(240.dp, 160.dp)
-                .background(Color.White.copy(alpha = 0.85f), RoundedCornerShape(8.dp))
-                .border(1.dp, Color.Gray, RoundedCornerShape(8.dp))
-                // Allow dragging the minimap viewport rectangle to pan the main canvas
-                .pointerInput(Unit) {
-                    detectDragGestures { change, dragAmount ->
-                        change.consume()
-                        val mapScale =
-                            min(240f / graph.width.toFloat(), 160f / graph.height.toFloat())
-                        // Inverse translation: dragging minimap view moves main canvas opposite
-                        coroutineScope.launch {
-                            offsetAnim.snapTo(
-                                offsetAnim.value - Offset(
-                                    dragAmount.x / mapScale * zoom, dragAmount.y / mapScale * zoom
+            // Minimap Radar UI
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp)
+                    .size(240.dp, 160.dp)
+                    .background(Color.White.copy(alpha = 0.85f), RoundedCornerShape(8.dp))
+                    .border(1.dp, Color.Gray, RoundedCornerShape(8.dp))
+                    // Allow dragging the minimap viewport rectangle to pan the main canvas
+                    .pointerInput(Unit) {
+                        detectDragGestures { change, dragAmount ->
+                            change.consume()
+                            val mapScale =
+                                min(240f / graph.width.toFloat(), 160f / graph.height.toFloat())
+                            // Inverse translation: dragging minimap view moves main canvas opposite
+                            coroutineScope.launch {
+                                offsetAnim.snapTo(
+                                    offsetAnim.value - Offset(
+                                        dragAmount.x / mapScale * zoom,
+                                        dragAmount.y / mapScale * zoom
+                                    )
+                                )
+                            }
+                        }
+                    }) {
+                Canvas(modifier = Modifier.fillMaxSize().padding(4.dp)) {
+                    val mapScale = min(
+                        size.width / graph.width.toFloat(),
+                        size.height / graph.height.toFloat()
+                    )
+                    val mapOffsetX = (size.width - (graph.width.toFloat() * mapScale)) / 2f
+                    val mapOffsetY = (size.height - (graph.height.toFloat() * mapScale)) / 2f
+
+                    translate(mapOffsetX, mapOffsetY) {
+                        // 1. Draw mini nodes
+                        graph.nodes.forEach { n ->
+                            drawRect(
+                                color = getGraphNodeColor(n), // Uses shared theme
+                                topLeft = Offset(
+                                    n.x.toFloat() * mapScale,
+                                    n.y.toFloat() * mapScale
+                                ),
+                                size = Size(
+                                    n.width.toFloat() * mapScale,
+                                    n.height.toFloat() * mapScale
                                 )
                             )
                         }
-                    }
-                }) {
-            Canvas(modifier = Modifier.fillMaxSize().padding(4.dp)) {
-                val mapScale =
-                    min(size.width / graph.width.toFloat(), size.height / graph.height.toFloat())
-                val mapOffsetX = (size.width - (graph.width.toFloat() * mapScale)) / 2f
-                val mapOffsetY = (size.height - (graph.height.toFloat() * mapScale)) / 2f
 
-                translate(mapOffsetX, mapOffsetY) {
-                    // 1. Draw mini nodes
-                    graph.nodes.forEach { n ->
+                        // 2. Draw active viewport window
+                        val vpW = viewportWidth / zoom
+                        val vpH = viewportHeight / zoom
+                        val vpX = -offsetAnim.value.x / zoom
+                        val vpY = -offsetAnim.value.y / zoom
+
                         drawRect(
-                            color = getGraphNodeColor(n), // Uses shared theme
-                            topLeft = Offset(n.x.toFloat() * mapScale, n.y.toFloat() * mapScale),
-                            size = Size(n.width.toFloat() * mapScale, n.height.toFloat() * mapScale)
+                            color = Color.Red.copy(alpha = 0.4f),
+                            topLeft = Offset(vpX * mapScale, vpY * mapScale),
+                            size = Size(vpW * mapScale, vpH * mapScale),
+                            style = Stroke(width = 3f)
                         )
                     }
-
-                    // 2. Draw active viewport window
-                    val vpW = viewportWidth / zoom
-                    val vpH = viewportHeight / zoom
-                    val vpX = -offsetAnim.value.x / zoom
-                    val vpY = -offsetAnim.value.y / zoom
-
-                    drawRect(
-                        color = Color.Red.copy(alpha = 0.4f),
-                        topLeft = Offset(vpX * mapScale, vpY * mapScale),
-                        size = Size(vpW * mapScale, vpH * mapScale),
-                        style = Stroke(width = 3f)
-                    )
                 }
             }
         }
+    }
+}
+
+private fun getNodeTooltipText(node: GraphNode): String {
+    return when (node) {
+        is GraphNode.MetadataNode -> "Metadata File\nVersion: ${node.data.formatVersion}\nSnapshots: ${node.data.snapshots.size}"
+        is GraphNode.SnapshotNode -> "Snapshot: ${node.data.snapshotId}\nOp: ${node.data.summary["operation"]}"
+        is GraphNode.ManifestNode -> "Manifest\nAdded Files: ${node.data.addedFilesCount}\nDeleted Files: ${node.data.deletedFilesCount}"
+        is GraphNode.FileNode     -> "Data File\nRecords: ${node.data.recordCount}\nSize: ${node.data.fileSizeInBytes} bytes"
+        is GraphNode.RowNode      -> if (node.isDelete) "Delete Record" else "Data Record"
     }
 }
