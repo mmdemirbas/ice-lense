@@ -2,9 +2,8 @@
 
 Simple desktop UI to inspect Apache Iceberg table structure.
 
-![Graph View](assets/screenshots/01-graph.png)
-
 It helps you see:
+
 - metadata
 - snapshots
 - manifests
@@ -12,6 +11,9 @@ It helps you see:
 - sample rows
 
 This project is built with Kotlin + Compose Desktop.
+
+![Workspace](assets/screenshots/01-workspace-inspector.png)
+![Structure](assets/screenshots/02-structure-tooltip.png)
 
 ## Why this project
 
@@ -55,16 +57,17 @@ Iceberg Lens gives a visual graph + inspector view so teams can understand table
 5. Click a node to see details in **Inspector**.
 
 Useful toolbar actions:
+
 - **Re-apply Layout**: reset node layout after manual dragging
 - **Reload from Filesystem**: reload table metadata/data
 - **Auto Reload**: keep checking metadata changes automatically
-
 
 ## 简体中文（简要）
 
 `Iceberg Lens` 是一个桌面工具，用来快速查看 Iceberg 表结构。
 
 你可以看到：
+
 - metadata
 - snapshots
 - manifests
@@ -78,11 +81,13 @@ Useful toolbar actions:
 ```
 
 基本使用：
+
 1. 点击 **Add to Workspace** 添加仓库或表目录。
 2. 在 Workspace 里选择一个表。
 3. 在图上点击节点，在 Inspector 查看详细信息。
 
 常用按钮：
+
 - **Re-apply Layout**：重新排版图布局
 - **Reload from Filesystem**：从文件系统重新加载
 - **Auto Reload**：自动检测变化并刷新
