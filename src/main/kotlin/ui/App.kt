@@ -44,8 +44,9 @@ private const val PREF_WAREHOUSE_PATH = "last_warehouse_path"
 private const val PREF_SHOW_ROWS = "show_data_rows"
 private const val PREF_LEFT_PANE_WIDTH = "left_pane_width"
 private const val PREF_RIGHT_PANE_WIDTH = "right_pane_width"
-private const val PREF_LEFT_PANE_VISIBLE = "left_pane_visible"
-private const val PREF_RIGHT_PANE_VISIBLE = "right_pane_visible"
+private const val PREF_ACTIVE_LEFT_WINDOW = "active_left_window"
+private const val PREF_ACTIVE_RIGHT_WINDOW = "active_right_window"
+private const val PREF_WINDOW_ANCHORS = "tool_window_anchors"
 private const val PREF_ZOOM = "zoom"
 private const val PREF_SHOW_METADATA = "show_metadata"
 private const val PREF_SHOW_SNAPSHOTS = "show_snapshots"
@@ -180,13 +181,61 @@ fun App() {
 
     var leftPaneWidth by remember { mutableStateOf(prefs.getFloat(PREF_LEFT_PANE_WIDTH, 250f).dp) }
     var rightPaneWidth by remember { mutableStateOf(prefs.getFloat(PREF_RIGHT_PANE_WIDTH, 300f).dp) }
-    var isLeftPaneVisible by remember { mutableStateOf(prefs.getBoolean(PREF_LEFT_PANE_VISIBLE, true)) }
-    var isRightPaneVisible by remember { mutableStateOf(prefs.getBoolean(PREF_RIGHT_PANE_VISIBLE, true)) }
     val density = LocalDensity.current
+
+    var activeLeftToolWindowId by remember { mutableStateOf(prefs.get(PREF_ACTIVE_LEFT_WINDOW, "workspace")) }
+    var activeRightToolWindowId by remember { mutableStateOf(prefs.get(PREF_ACTIVE_RIGHT_WINDOW, "structure")) }
+
+    var windowAnchors by remember {
+        val saved = prefs.get(PREF_WINDOW_ANCHORS, "workspace:LEFT;filters:LEFT;structure:RIGHT;inspector:RIGHT")
+        val map = saved.split(";").associate {
+            val (id, anchor) = it.split(":")
+            id to ToolWindowAnchor.valueOf(anchor)
+        }.toMutableMap()
+        mutableStateOf(map)
+    }
+
+    val toolWindows = listOf(
+        ToolWindowConfig("workspace", "Workspace", Icons.Default.Storage, windowAnchors["workspace"] ?: ToolWindowAnchor.LEFT),
+        ToolWindowConfig("filters", "Filters", Icons.Default.FilterList, windowAnchors["filters"] ?: ToolWindowAnchor.LEFT),
+        ToolWindowConfig("structure", "Structure", Icons.Default.AccountTree, windowAnchors["structure"] ?: ToolWindowAnchor.RIGHT),
+        ToolWindowConfig("inspector", "Inspector", Icons.Default.Info, windowAnchors["inspector"] ?: ToolWindowAnchor.RIGHT)
+    )
 
     fun saveWorkspace(items: List<WorkspaceItem>) {
         workspaceItems = items
         prefs.put(PREF_WORKSPACE_ITEMS, items.joinToString(";") { it.serialize() })
+    }
+
+    fun toggleToolWindow(id: String, side: ToolWindowAnchor) {
+        if (side == ToolWindowAnchor.LEFT) {
+            activeLeftToolWindowId = if (activeLeftToolWindowId == id) "" else id
+            prefs.put(PREF_ACTIVE_LEFT_WINDOW, activeLeftToolWindowId)
+        } else {
+            activeRightToolWindowId = if (activeRightToolWindowId == id) "" else id
+            prefs.put(PREF_ACTIVE_RIGHT_WINDOW, activeRightToolWindowId)
+        }
+    }
+
+    fun moveToolWindow(id: String) {
+        val currentAnchor = windowAnchors[id] ?: ToolWindowAnchor.LEFT
+        val newAnchor = if (currentAnchor == ToolWindowAnchor.LEFT) ToolWindowAnchor.RIGHT else ToolWindowAnchor.LEFT
+        
+        val newAnchors = windowAnchors.toMutableMap()
+        newAnchors[id] = newAnchor
+        windowAnchors = newAnchors
+        prefs.put(PREF_WINDOW_ANCHORS, newAnchors.entries.joinToString(";") { "${it.key}:${it.value}" })
+
+        // Clear active states if they were pointing to this ID
+        if (currentAnchor == ToolWindowAnchor.LEFT && activeLeftToolWindowId == id) activeLeftToolWindowId = ""
+        if (currentAnchor == ToolWindowAnchor.RIGHT && activeRightToolWindowId == id) activeRightToolWindowId = ""
+        
+        // Auto-activate on new side
+        if (newAnchor == ToolWindowAnchor.LEFT) activeLeftToolWindowId = id
+        else activeRightToolWindowId = id
+        
+        prefs.put(PREF_ACTIVE_LEFT_WINDOW, activeLeftToolWindowId)
+        prefs.put(PREF_ACTIVE_RIGHT_WINDOW, activeRightToolWindowId)
     }
 
     // Logic to load a specific table
@@ -231,12 +280,12 @@ fun App() {
             ) {
                 ToolbarIconButton(
                     icon = Icons.AutoMirrored.Filled.ViewSidebar,
-                    tooltip = if (isLeftPaneVisible) "Hide Sidebar" else "Show Sidebar",
+                    tooltip = if (activeLeftToolWindowId.isNotEmpty()) "Hide Left Tool Windows" else "Show Left Tool Windows",
                     onClick = {
-                        isLeftPaneVisible = !isLeftPaneVisible
-                        prefs.putBoolean(PREF_LEFT_PANE_VISIBLE, isLeftPaneVisible)
+                        activeLeftToolWindowId = if (activeLeftToolWindowId.isNotEmpty()) "" else toolWindows.firstOrNull { windowAnchors[it.id] == ToolWindowAnchor.LEFT }?.id ?: ""
+                        prefs.put(PREF_ACTIVE_LEFT_WINDOW, activeLeftToolWindowId)
                     },
-                    isSelected = isLeftPaneVisible
+                    isSelected = activeLeftToolWindowId.isNotEmpty()
                 )
 
                 Spacer(Modifier.width(8.dp))
@@ -312,85 +361,117 @@ fun App() {
 
                 ToolbarIconButton(
                     icon = Icons.AutoMirrored.Filled.ViewSidebar,
-                    tooltip = if (isRightPaneVisible) "Hide Inspector" else "Show Inspector",
+                    tooltip = if (activeRightToolWindowId.isNotEmpty()) "Hide Right Tool Windows" else "Show Right Tool Windows",
                     onClick = {
-                        isRightPaneVisible = !isRightPaneVisible
-                        prefs.putBoolean(PREF_RIGHT_PANE_VISIBLE, isRightPaneVisible)
+                        activeRightToolWindowId = if (activeRightToolWindowId.isNotEmpty()) "" else toolWindows.firstOrNull { windowAnchors[it.id] == ToolWindowAnchor.RIGHT }?.id ?: ""
+                        prefs.put(PREF_ACTIVE_RIGHT_WINDOW, activeRightToolWindowId)
                     },
-                    isSelected = isRightPaneVisible,
+                    isSelected = activeRightToolWindowId.isNotEmpty(),
                     modifier = Modifier.graphicsLayer { scaleX = -1f }
                 )
             }
             HorizontalDivider()
 
             Row(Modifier.weight(1f)) {
+                // Left Tool Window Bar
+                ToolWindowBar(
+                    anchor = ToolWindowAnchor.LEFT,
+                    windows = toolWindows.filter { windowAnchors[it.id] == ToolWindowAnchor.LEFT }.map { it.id to it.icon },
+                    activeWindowId = activeLeftToolWindowId,
+                    onWindowClick = { id ->
+                        activeLeftToolWindowId = if (activeLeftToolWindowId == id) "" else id
+                        prefs.put(PREF_ACTIVE_LEFT_WINDOW, activeLeftToolWindowId)
+                    }
+                )
 
-                // 1. Resizable Left Sidebar
-                if (isLeftPaneVisible) {
+                if (activeLeftToolWindowId.isNotEmpty()) {
                     Box(Modifier.width(leftPaneWidth).fillMaxHeight()) {
-                        Sidebar(
-                            workspaceItems = workspaceItems,
-                            selectedTablePath = selectedTablePath,
-                            showRows = showRows,
-                            onShowRowsChange = {
-                                showRows = it
-                                prefs.putBoolean(PREF_SHOW_ROWS, it)
-                                if (selectedTablePath != null) loadTable(selectedTablePath!!, it)
-                            },
-                            showMetadata = showMetadata,
-                            onShowMetadataChange = {
-                                showMetadata = it
-                                prefs.putBoolean(PREF_SHOW_METADATA, it)
-                            },
-                            showSnapshots = showSnapshots,
-                            onShowSnapshotsChange = {
-                                showSnapshots = it
-                                prefs.putBoolean(PREF_SHOW_SNAPSHOTS, it)
-                            },
-                            showManifests = showManifests,
-                            onShowManifestsChange = {
-                                showManifests = it
-                                prefs.putBoolean(PREF_SHOW_MANIFESTS, it)
-                            },
-                            showDataFiles = showDataFiles,
-                            onShowDataFilesChange = {
-                                showDataFiles = it
-                                prefs.putBoolean(PREF_SHOW_DATA_FILES, it)
-                            },
-                            onTableSelect = { tablePath ->
-                                if (selectedTablePath != null && graphModel != null) {
-                                    val oldKey = "$selectedTablePath-rows_$showRows"
-                                    sessionCache[oldKey]?.selectedNodeIds = selectedNodeIds
-                                }
-                                loadTable(tablePath)
-                            },
-                            onAddRoot = { path ->
-                                val file = File(path)
-                                if (file.exists() && file.isDirectory) {
-                                    val newItem = if (isIcebergTable(file)) {
-                                        WorkspaceItem.SingleTable(path, file.name)
-                                    } else {
-                                        WorkspaceItem.Warehouse(path, file.name, scanForTables(file))
+                        val onClose = { activeLeftToolWindowId = "" }
+                        val onMove = { moveToolWindow(activeLeftToolWindowId) }
+                        when (activeLeftToolWindowId) {
+                            "workspace" -> ToolWindowPane("Workspace", onClose, onMove) {
+                                WorkspacePanel(
+                                    workspaceItems = workspaceItems,
+                                    selectedTablePath = selectedTablePath,
+                                    onTableSelect = { tablePath ->
+                                        if (selectedTablePath != null && graphModel != null) {
+                                            val oldKey = "$selectedTablePath-rows_$showRows"
+                                            sessionCache[oldKey]?.selectedNodeIds = selectedNodeIds
+                                        }
+                                        loadTable(tablePath)
+                                    },
+                                    onAddRoot = { path ->
+                                        val file = File(path)
+                                        if (file.exists() && file.isDirectory) {
+                                            val newItem = if (isIcebergTable(file)) {
+                                                WorkspaceItem.SingleTable(path, file.name)
+                                            } else {
+                                                WorkspaceItem.Warehouse(path, file.name, scanForTables(file))
+                                            }
+                                            saveWorkspace(workspaceItems + newItem)
+                                        }
+                                    },
+                                    onRemoveRoot = { item ->
+                                        saveWorkspace(workspaceItems.filter { it != item })
+                                    },
+                                    onMoveRoot = { item, delta ->
+                                        val index = workspaceItems.indexOf(item)
+                                        if (index != -1) {
+                                            val newIndex = (index + delta).coerceIn(0, workspaceItems.size - 1)
+                                            if (newIndex != index) {
+                                                val newList = workspaceItems.toMutableList()
+                                                newList.removeAt(index)
+                                                newList.add(newIndex, item)
+                                                saveWorkspace(newList)
+                                            }
+                                        }
                                     }
-                                    saveWorkspace(workspaceItems + newItem)
-                                }
-                            },
-                            onRemoveRoot = { item ->
-                                saveWorkspace(workspaceItems.filter { it != item })
-                            },
-                            onMoveRoot = { item, delta ->
-                                val index = workspaceItems.indexOf(item)
-                                if (index != -1) {
-                                    val newIndex = (index + delta).coerceIn(0, workspaceItems.size - 1)
-                                    if (newIndex != index) {
-                                        val newList = workspaceItems.toMutableList()
-                                        newList.removeAt(index)
-                                        newList.add(newIndex, item)
-                                        saveWorkspace(newList)
+                                )
+                            }
+                            "filters"   -> ToolWindowPane("Filters", onClose, onMove) {
+                                FiltersPanel(
+                                    showRows = showRows,
+                                    onShowRowsChange = {
+                                        showRows = it
+                                        prefs.putBoolean(PREF_SHOW_ROWS, it)
+                                        if (selectedTablePath != null) loadTable(selectedTablePath!!, it)
+                                    },
+                                    showMetadata = showMetadata,
+                                    onShowMetadataChange = {
+                                        showMetadata = it
+                                        prefs.putBoolean(PREF_SHOW_METADATA, it)
+                                    },
+                                    showSnapshots = showSnapshots,
+                                    onShowSnapshotsChange = {
+                                        showSnapshots = it
+                                        prefs.putBoolean(PREF_SHOW_SNAPSHOTS, it)
+                                    },
+                                    showManifests = showManifests,
+                                    onShowManifestsChange = {
+                                        showManifests = it
+                                        prefs.putBoolean(PREF_SHOW_MANIFESTS, it)
+                                    },
+                                    showDataFiles = showDataFiles,
+                                    onShowDataFilesChange = {
+                                        showDataFiles = it
+                                        prefs.putBoolean(PREF_SHOW_DATA_FILES, it)
                                     }
+                                )
+                            }
+                            "structure" -> ToolWindowPane("Structure", onClose, onMove) {
+                                if (graphModel != null) {
+                                    NavigationTree(
+                                        graph = graphModel!!,
+                                        selectedNodeIds = selectedNodeIds,
+                                        onNodeSelect = { selectedNodeIds = setOf(it.id) })
+                                } else {
+                                    Text("No graph loaded.", fontSize = 12.sp, color = Color.Gray, modifier = Modifier.padding(8.dp))
                                 }
                             }
-                        )
+                            "inspector" -> ToolWindowPane("Inspector", onClose, onMove) {
+                                NodeDetailsContent(graphModel, selectedNodeIds)
+                            }
+                        }
                     }
                     DraggableDivider(onDrag = { delta ->
                         val deltaDp = with(density) { delta.toDp() }
@@ -445,275 +526,86 @@ fun App() {
                     }
                 }
 
-                // 3. Resizable Right Inspector Panel
-                if (isRightPaneVisible) {
+                if (activeRightToolWindowId.isNotEmpty()) {
                     DraggableDivider(onDrag = { delta ->
                         val deltaDp = with(density) { delta.toDp() }
-                        // Subtracting delta because dragging left increases the right pane's width
                         rightPaneWidth = (rightPaneWidth - deltaDp).coerceIn(200.dp, 600.dp)
                         prefs.putFloat(PREF_RIGHT_PANE_WIDTH, rightPaneWidth.value)
                     })
-
-                    Column(Modifier.width(rightPaneWidth).fillMaxHeight().padding(8.dp)) {
-                        Text("Structure Tree", style = MaterialTheme.typography.headlineSmall)
-                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
-                        Box(Modifier.weight(0.5f).fillMaxWidth()) {
-                            if (graphModel != null) {
-                                NavigationTree(
-                                    graph = graphModel!!,
-                                    selectedNodeIds = selectedNodeIds,
-                                    onNodeSelect = { selectedNodeIds = setOf(it.id) })
-                            } else {
-                                Text("No graph loaded.", fontSize = 12.sp, color = Color.Gray)
-                            }
-                        }
-
-                        Spacer(Modifier.height(16.dp))
-
-                        Text("Node Details", style = MaterialTheme.typography.headlineSmall)
-                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
-                        Box(Modifier.weight(0.5f).fillMaxWidth()) {
-                            SelectionContainer {
-                                if (selectedNodeIds.isEmpty()) {
-                                    Text(
-                                        "Select a node to view details.",
-                                        fontSize = 12.sp,
-                                        color = Color.Gray
-                                    )
-                                } else if (selectedNodeIds.size == 1) {
-                                    val node = graphModel?.nodes?.find { it.id == selectedNodeIds.first() }
-                                    if (node != null) {
-                                        val scrollState = rememberScrollState()
-                                        Box(Modifier.fillMaxSize()) {
-                                            Column(
-                                                Modifier.fillMaxSize().verticalScroll(scrollState)
-                                            ) {
-                                                when (node) {
-                                                is GraphNode.MetadataNode -> {
-                                                    DetailTable {
-                                                        DetailRow("Property", "Value", isHeader = true)
-                                                        DetailRow("File Name", node.fileName)
-                                                        DetailRow(
-                                                            "Format Version",
-                                                            "${node.data.formatVersion}"
-                                                        )
-                                                        DetailRow(
-                                                            "Table UUID",
-                                                            "${node.data.tableUuid ?: "N/A"}"
-                                                        )
-                                                        DetailRow(
-                                                            "Location",
-                                                            "${node.data.location ?: "N/A"}"
-                                                        )
-                                                        DetailRow(
-                                                            "Last Seq. Num.",
-                                                            "${node.data.lastSequenceNumber ?: "N/A"}"
-                                                        )
-                                                        DetailRow(
-                                                            "Last Updated",
-                                                            formatTimestamp(node.data.lastUpdatedMs)
-                                                        )
-                                                        DetailRow(
-                                                            "Last Column ID",
-                                                            "${node.data.lastColumnId ?: "N/A"}"
-                                                        )
-                                                        DetailRow(
-                                                            "Current Snap.",
-                                                            "${node.data.currentSnapshotId ?: "None"}"
-                                                        )
-                                                        DetailRow(
-                                                            "Total Snaps.",
-                                                            "${node.data.snapshots.size}"
-                                                        )
-                                                    }
-                                                    if (node.data.properties.isNotEmpty()) {
-                                                        Spacer(Modifier.height(16.dp))
-                                                        Text(
-                                                            "Properties",
-                                                            fontWeight = FontWeight.Bold,
-                                                            fontSize = 14.sp
-                                                        )
-                                                        Spacer(Modifier.height(4.dp))
-                                                        DetailTable {
-                                                            DetailRow("Key", "Value", isHeader = true)
-                                                            node.data.properties.forEach { (k, v) ->
-                                                                DetailRow(k, v)
-                                                            }
-                                                        }
-                                                    }
-                                                }
-
-                                                is GraphNode.SnapshotNode -> {
-                                                    DetailTable {
-                                                        DetailRow("Property", "Value", isHeader = true)
-                                                        DetailRow("Snapshot ID", "${node.data.snapshotId}")
-                                                        DetailRow(
-                                                            "Parent ID",
-                                                            "${node.data.parentSnapshotId ?: "None"}"
-                                                        )
-                                                        DetailRow(
-                                                            "Timestamp",
-                                                            formatTimestamp(node.data.timestampMs)
-                                                        )
-                                                        val manifestList = node.data.manifestList
-                                                        val manifestListLabel =
-                                                            if (manifestList == null) "N/A" else "${
-                                                                manifestList.substringAfterLast("/")
-                                                            } ($manifestList)"
-                                                        DetailRow("Manifest List", manifestListLabel)
-                                                    }
-                                                    if (node.data.summary.isNotEmpty()) {
-                                                        Spacer(Modifier.height(16.dp))
-                                                        Text(
-                                                            "Summary",
-                                                            fontWeight = FontWeight.Bold,
-                                                            fontSize = 14.sp
-                                                        )
-                                                        Spacer(Modifier.height(4.dp))
-                                                        DetailTable {
-                                                            DetailRow("Key", "Value", isHeader = true)
-                                                            node.data.summary.forEach { (k, v) ->
-                                                                DetailRow(k, v)
-                                                            }
-                                                        }
-                                                    }
-                                                }
-
-                                                is GraphNode.ManifestNode -> DetailTable {
-                                                    val contentType = when (val c = node.data.content) {
-                                                        1    -> "Deletes ($c)"
-                                                        0    -> "Data ($c)"
-                                                        else -> "Unknown ($c)"
-                                                    }
-                                                    DetailRow("Property", "Value", isHeader = true)
-                                                    DetailRow("Content Type", contentType)
-                                                    DetailRow(
-                                                        "Sequence Num.",
-                                                        "${node.data.sequenceNumber ?: "N/A"}"
-                                                    )
-                                                    DetailRow(
-                                                        "Min Sequence Num.",
-                                                        "${node.data.cominSequenceNumber ?: "N/A"}"
-                                                    )
-                                                    DetailRow(
-                                                        "Partition Spec ID",
-                                                        "${node.data.partitionSpecId ?: "N/A"}"
-                                                    )
-                                                    DetailRow(
-                                                        "Added Snapshot",
-                                                        "${node.data.addedSnapshotId ?: "N/A"}"
-                                                    )
-                                                    DetailRow("Added Files", "${node.data.addedFilesCount ?: 0}")
-                                                    DetailRow(
-                                                        "Existing Files",
-                                                        "${node.data.existingFilesCount ?: 0}"
-                                                    )
-                                                    DetailRow(
-                                                        "Deleted Files",
-                                                        "${node.data.deletedFilesCount ?: 0}"
-                                                    )
-                                                    DetailRow("Added Rows", "${node.data.addedRowsCount ?: 0}")
-                                                    DetailRow(
-                                                        "Existing Rows",
-                                                        "${node.data.existingRowsCount ?: 0}"
-                                                    )
-                                                    DetailRow(
-                                                        "Deleted Rows",
-                                                        "${node.data.deletedRowsCount ?: 0}"
-                                                    )
-                                                    DetailRow(
-                                                        "Manifest Length",
-                                                        "${node.data.manifestLength ?: 0} bytes"
-                                                    )
-                                                    val manifestPath = node.data.manifestPath
-                                                    val manifestPathLabel =
-                                                        if (manifestPath == null) "N/A" else "${
-                                                            manifestPath.substringAfterLast("/")
-                                                        } ($manifestPath)"
-                                                    DetailRow("Path", manifestPathLabel)
-                                                }
-
-                                                is GraphNode.FileNode -> DetailTable {
-                                                    val contentType = when (val c = node.data.content ?: 0) {
-                                                        1    -> "Position Delete ($c)"
-                                                        2    -> "Equality Delete ($c)"
-                                                        else -> "Data ($c)"
-                                                    }
-                                                    val status = when (val s = node.entry.status) {
-                                                        0    -> "EXISTING ($s)"
-                                                        1    -> "ADDED ($s)"
-                                                        2    -> "DELETED ($s)"
-                                                        else -> "Unknown ($s)"
-                                                    }
-                                                    DetailRow("Property", "Value", isHeader = true)
-                                                    DetailRow("Simple ID", "${node.simpleId}")
-                                                    DetailRow("Content Type", contentType)
-                                                    DetailRow("Status", status)
-                                                    DetailRow(
-                                                        "Snapshot ID",
-                                                        "${node.entry.snapshotId ?: "N/A"}"
-                                                    )
-                                                    DetailRow(
-                                                        "Sequence Num.",
-                                                        "${node.entry.sequenceNumber ?: "N/A"}"
-                                                    )
-                                                    DetailRow(
-                                                        "File Seq. Num.",
-                                                        "${node.entry.fileSequenceNumber ?: "N/A"}"
-                                                    )
-                                                    DetailRow("File Format", "${node.data.fileFormat ?: "N/A"}")
-                                                    DetailRow("Record Count", "${node.data.recordCount ?: 0}")
-                                                    DetailRow(
-                                                        "File Size",
-                                                        "${node.data.fileSizeInBytes ?: 0} bytes"
-                                                    )
-                                                    DetailRow(
-                                                        "Sort Order ID",
-                                                        "${node.data.sorderOrderId ?: "N/A"}"
-                                                    )
-                                                    DetailRow(
-                                                        "Split Offsets",
-                                                        node.data.splitOffsets.joinToString(", ")
-                                                    )
-                                                    DetailRow("Path", "${node.data.filePath ?: "N/A"}")
-                                                }
-
-                                                is GraphNode.RowNode -> DetailTable {
-                                                    val typeStr = when (node.content) {
-                                                        1    -> "Position Delete Row"
-                                                        2    -> "Equality Delete Row"
-                                                        else -> "Data Row"
-                                                    }
-                                                    DetailRow("Column", "Value ($typeStr)", isHeader = true)
-                                                    node.data.forEach { (k, v) ->
-                                                        DetailRow(k, "$v")
-                                                    }
-                                                }
+                    Box(Modifier.width(rightPaneWidth).fillMaxHeight()) {
+                        val onClose = { activeRightToolWindowId = "" }
+                        val onMove = { moveToolWindow(activeRightToolWindowId) }
+                        when (activeRightToolWindowId) {
+                            "workspace" -> ToolWindowPane("Workspace", onClose, onMove) {
+                                WorkspacePanel(
+                                    workspaceItems = workspaceItems,
+                                    selectedTablePath = selectedTablePath,
+                                    onTableSelect = { loadTable(it) },
+                                    onAddRoot = { path ->
+                                        val file = File(path)
+                                        if (file.exists() && file.isDirectory) {
+                                            val newItem = if (isIcebergTable(file)) {
+                                                WorkspaceItem.SingleTable(path, file.name)
+                                            } else {
+                                                WorkspaceItem.Warehouse(path, file.name, scanForTables(file))
+                                            }
+                                            saveWorkspace(workspaceItems + newItem)
+                                        }
+                                    },
+                                    onRemoveRoot = { item ->
+                                        saveWorkspace(workspaceItems.filter { it != item })
+                                    },
+                                    onMoveRoot = { item, delta ->
+                                        val index = workspaceItems.indexOf(item)
+                                        if (index != -1) {
+                                            val newIndex = (index + delta).coerceIn(0, workspaceItems.size - 1)
+                                            if (newIndex != index) {
+                                                val newList = workspaceItems.toMutableList()
+                                                newList.removeAt(index)
+                                                newList.add(newIndex, item)
+                                                saveWorkspace(newList)
                                             }
                                         }
-                                        VerticalScrollbar(
-                                            modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
-                                            adapter = rememberScrollbarAdapter(scrollState)
-                                        )
                                     }
+                                )
+                            }
+                            "filters"   -> ToolWindowPane("Filters", onClose, onMove) {
+                                FiltersPanel(
+                                    showRows = showRows, onShowRowsChange = { showRows = it },
+                                    showMetadata = showMetadata, onShowMetadataChange = { showMetadata = it },
+                                    showSnapshots = showSnapshots, onShowSnapshotsChange = { showSnapshots = it },
+                                    showManifests = showManifests, onShowManifestsChange = { showManifests = it },
+                                    showDataFiles = showDataFiles, onShowDataFilesChange = { showDataFiles = it }
+                                )
+                            }
+                            "structure" -> ToolWindowPane("Structure", onClose, onMove) {
+                                if (graphModel != null) {
+                                    NavigationTree(
+                                        graph = graphModel!!,
+                                        selectedNodeIds = selectedNodeIds,
+                                        onNodeSelect = { selectedNodeIds = setOf(it.id) })
                                 } else {
-                                    Column {
-                                        Text("${selectedNodeIds.size} Nodes Selected", fontWeight = FontWeight.Bold)
-                                        Text(
-                                            "Drag any selected node to move the group together.",
-                                            fontSize = 12.sp,
-                                            color = Color.Gray
-                                        )
-                                    }
+                                    Text("No graph loaded.", fontSize = 12.sp, color = Color.Gray, modifier = Modifier.padding(8.dp))
                                 }
+                            }
+                            "inspector" -> ToolWindowPane("Inspector", onClose, onMove) {
+                                NodeDetailsContent(graphModel, selectedNodeIds)
                             }
                         }
                     }
                 }
+
+                // Right Tool Window Bar
+                ToolWindowBar(
+                    anchor = ToolWindowAnchor.RIGHT,
+                    windows = toolWindows.filter { windowAnchors[it.id] == ToolWindowAnchor.RIGHT }.map { it.id to it.icon },
+                    activeWindowId = activeRightToolWindowId,
+                    onWindowClick = { id ->
+                        activeRightToolWindowId = if (activeRightToolWindowId == id) "" else id
+                        prefs.put(PREF_ACTIVE_RIGHT_WINDOW, activeRightToolWindowId)
+                    }
+                )
             }
         }
     }
-}
 }
