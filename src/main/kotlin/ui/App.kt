@@ -658,17 +658,6 @@ fun App() {
             ) {
                 ToolbarGroup {
                     ToolbarIconButton(
-                        icon = Icons.Default.AdsClick,
-                        tooltip = "Selection Mode",
-                        onClick = {
-                            isSelectMode = true
-                            prefs.putBoolean(PREF_IS_SELECT_MODE, isSelectMode)
-                        },
-                        isSelected = isSelectMode,
-                        modifier = Modifier.size(32.dp)
-                    )
-                    Box(Modifier.width(1.dp).height(16.dp).background(Color(0xFFCCCCCC)))
-                    ToolbarIconButton(
                         icon = Icons.Default.PanTool,
                         tooltip = "Pan Mode",
                         onClick = {
@@ -676,6 +665,17 @@ fun App() {
                             prefs.putBoolean(PREF_IS_SELECT_MODE, isSelectMode)
                         },
                         isSelected = !isSelectMode,
+                        modifier = Modifier.size(32.dp)
+                    )
+                    Box(Modifier.width(1.dp).height(16.dp).background(Color(0xFFCCCCCC)))
+                    ToolbarIconButton(
+                        icon = Icons.Default.AdsClick,
+                        tooltip = "Selection Mode",
+                        onClick = {
+                            isSelectMode = true
+                            prefs.putBoolean(PREF_IS_SELECT_MODE, isSelectMode)
+                        },
+                        isSelected = isSelectMode,
                         modifier = Modifier.size(32.dp)
                     )
                 }
