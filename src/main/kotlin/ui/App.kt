@@ -28,9 +28,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import model.GraphModel
-import model.GraphNode
-import model.UnifiedTableModel
+import model.*
 import service.GraphLayoutService
 import java.awt.Cursor
 import java.io.File
@@ -54,6 +52,7 @@ private const val PREF_SHOW_SNAPSHOTS = "show_snapshots"
 private const val PREF_SHOW_MANIFESTS = "show_manifests"
 private const val PREF_SHOW_DATA_FILES = "show_data_files"
 private const val PREF_IS_SELECT_MODE = "is_select_mode"
+private const val PREF_WORKSPACE_ITEMS = "workspace_items"
 
 // Data class to hold cached table sessions
 data class TableSession(
@@ -192,12 +191,34 @@ fun ToolbarIconButton(
     }
 }
 
+// Helper to detect if a directory is an Iceberg table
+fun isIcebergTable(dir: File): Boolean {
+    val metaDir = File(dir, "metadata")
+    return metaDir.exists() && metaDir.isDirectory && metaDir.listFiles { f ->
+        f.name.endsWith(".metadata.json")
+    }?.isNotEmpty() == true
+}
+
+fun scanForTables(warehouseDir: File): List<String> {
+    return warehouseDir.listFiles { file ->
+        file.isDirectory && isIcebergTable(file)
+    }?.map { it.name }?.sorted() ?: emptyList()
+}
+
 @Composable
 fun App() {
-    var warehousePath by remember { mutableStateOf(prefs.get(PREF_WAREHOUSE_PATH, null)) }
-    var availableTables by remember { mutableStateOf<List<String>>(emptyList()) }
+    var workspaceItems by remember {
+        val saved = prefs.get(PREF_WORKSPACE_ITEMS, "")
+        val items = saved.split(";").mapNotNull { WorkspaceItem.deserialize(it) }
+        val refreshed = items.map { item ->
+            if (item is WorkspaceItem.Warehouse) {
+                item.copy(tables = scanForTables(File(item.path)))
+            } else item
+        }
+        mutableStateOf(refreshed)
+    }
 
-    var selectedTable by remember { mutableStateOf<String?>(null) }
+    var selectedTablePath by remember { mutableStateOf<String?>(null) }
     var graphModel by remember { mutableStateOf<GraphModel?>(null) }
     var selectedNodeIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
@@ -221,58 +242,31 @@ fun App() {
     var isRightPaneVisible by remember { mutableStateOf(prefs.getBoolean(PREF_RIGHT_PANE_VISIBLE, true)) }
     val density = LocalDensity.current
 
-    // Logic to scan a warehouse for valid Iceberg tables
-    fun scanWarehouse(path: String) {
-        val root = File(path)
-        if (!root.exists() || !root.isDirectory) {
-            errorMsg = "Invalid warehouse path: $path"
-            return
-        }
-
-        val discovered = root.listFiles { file ->
-            if (!file.isDirectory) return@listFiles false
-            val metaDir = File(file, "metadata")
-            metaDir.exists() && metaDir.isDirectory && metaDir.listFiles { f ->
-                f.name.endsWith(".metadata.json")
-            }?.isNotEmpty() == true
-        }?.map { it.name }?.sorted() ?: emptyList()
-
-        availableTables = discovered
-        errorMsg = null
-
-        // Reset local state
-        selectedTable = null
-        graphModel = null
-        selectedNodeIds = emptySet()
-    }
-
-    // Run initial scan if a persisted path exists
-    LaunchedEffect(warehousePath) {
-        warehousePath?.let { scanWarehouse(it) }
+    fun saveWorkspace(items: List<WorkspaceItem>) {
+        workspaceItems = items
+        prefs.put(PREF_WORKSPACE_ITEMS, items.joinToString(";") { it.serialize() })
     }
 
     // Logic to load a specific table
-    fun loadTable(tableName: String, withRows: Boolean = showRows) {
-        if (warehousePath == null) return
-        val cacheKey = "$tableName-rows_$withRows"
+    fun loadTable(tablePath: String, withRows: Boolean = showRows) {
+        val cacheKey = "$tablePath-rows_$withRows"
 
         if (sessionCache.containsKey(cacheKey)) {
             val session = sessionCache[cacheKey]!!
             graphModel = session.graph
-            selectedTable = tableName
+            selectedTablePath = tablePath
             selectedNodeIds = session.selectedNodeIds
             errorMsg = null
             return
         }
 
-        val path = "$warehousePath/$tableName"
         try {
-            val tableModel = UnifiedTableModel(Paths.get(path))
+            val tableModel = UnifiedTableModel(Paths.get(tablePath))
             val newGraph = GraphLayoutService.layoutGraph(tableModel, withRows)
 
             sessionCache[cacheKey] = TableSession(tableModel, newGraph)
             graphModel = newGraph
-            selectedTable = tableName
+            selectedTablePath = tablePath
             selectedNodeIds = emptySet()
             errorMsg = null
         } catch (e: Exception) {
@@ -393,14 +387,13 @@ fun App() {
                 if (isLeftPaneVisible) {
                     Box(Modifier.width(leftPaneWidth).fillMaxHeight()) {
                         Sidebar(
-                            warehousePath = warehousePath,
-                            tables = availableTables,
-                            selectedTable = selectedTable,
+                            workspaceItems = workspaceItems,
+                            selectedTablePath = selectedTablePath,
                             showRows = showRows,
                             onShowRowsChange = {
                                 showRows = it
                                 prefs.putBoolean(PREF_SHOW_ROWS, it)
-                                if (selectedTable != null) loadTable(selectedTable!!, it)
+                                if (selectedTablePath != null) loadTable(selectedTablePath!!, it)
                             },
                             showMetadata = showMetadata,
                             onShowMetadataChange = {
@@ -422,18 +415,40 @@ fun App() {
                                 showDataFiles = it
                                 prefs.putBoolean(PREF_SHOW_DATA_FILES, it)
                             },
-                            onTableSelect = { newTable ->
-                                if (selectedTable != null && graphModel != null) {
-                                    val oldKey = "$selectedTable-rows_$showRows"
+                            onTableSelect = { tablePath ->
+                                if (selectedTablePath != null && graphModel != null) {
+                                    val oldKey = "$selectedTablePath-rows_$showRows"
                                     sessionCache[oldKey]?.selectedNodeIds = selectedNodeIds
                                 }
-                                loadTable(newTable)
+                                loadTable(tablePath)
                             },
-                            onWarehouseChange = { newPath ->
-                                warehousePath = newPath
-                                prefs.put(PREF_WAREHOUSE_PATH, newPath)
-                                scanWarehouse(newPath)
-                            })
+                            onAddRoot = { path ->
+                                val file = File(path)
+                                if (file.exists() && file.isDirectory) {
+                                    val newItem = if (isIcebergTable(file)) {
+                                        WorkspaceItem.SingleTable(path, file.name)
+                                    } else {
+                                        WorkspaceItem.Warehouse(path, file.name, scanForTables(file))
+                                    }
+                                    saveWorkspace(workspaceItems + newItem)
+                                }
+                            },
+                            onRemoveRoot = { item ->
+                                saveWorkspace(workspaceItems.filter { it != item })
+                            },
+                            onMoveRoot = { item, delta ->
+                                val index = workspaceItems.indexOf(item)
+                                if (index != -1) {
+                                    val newIndex = (index + delta).coerceIn(0, workspaceItems.size - 1)
+                                    if (newIndex != index) {
+                                        val newList = workspaceItems.toMutableList()
+                                        newList.removeAt(index)
+                                        newList.add(newIndex, item)
+                                        saveWorkspace(newList)
+                                    }
+                                }
+                            }
+                        )
                     }
                     DraggableDivider(onDrag = { delta ->
                         val deltaDp = with(density) { delta.toDp() }
@@ -471,9 +486,9 @@ fun App() {
                             },
                             onSelectionChange = { selectedNodeIds = it }
                         )
-                    } else if (warehousePath != null && availableTables.isEmpty()) {
+                    } else if (workspaceItems.isNotEmpty()) {
                         Text(
-                            "No Iceberg tables found in this warehouse.",
+                            "Select a table from the sidebar to view its structure.",
                             color = Color.Gray,
                             modifier = Modifier.align(Alignment.Center)
                         )
