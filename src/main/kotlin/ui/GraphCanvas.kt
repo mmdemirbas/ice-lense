@@ -6,9 +6,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.TooltipArea
@@ -21,11 +19,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.PointerEventType
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.IntOffset
@@ -48,7 +46,10 @@ fun GraphCanvas(
 ) {
     val offsetAnim = remember { Animatable(Offset(100f, 100f), Offset.VectorConverter) }
     val coroutineScope = rememberCoroutineScope()
-
+    
+    // Smooth internal state to eliminate lag during gestures
+    var localZoom by remember { mutableStateOf(zoom) }
+    
     var hoveredNodeId by remember { mutableStateOf<String?>(null) }
     var marqueeStart by remember { mutableStateOf<Offset?>(null) }
     var marqueeEnd by remember { mutableStateOf<Offset?>(null) }
@@ -58,7 +59,78 @@ fun GraphCanvas(
             .fillMaxSize()
             .background(Color(0xFFE0E0E0))
             .pointerInput(isSelectMode) {
-                if (isSelectMode) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val changes = event.changes
+                        
+                        if (event.type == PointerEventType.Scroll) {
+                            val delta = changes.first().scrollDelta
+                            val isZoom = event.keyboardModifiers.isCtrlPressed || event.keyboardModifiers.isMetaPressed
+                            
+                            if (isZoom) {
+                                // Zoom at mouse position
+                                val zoomFactor = Math.pow(1.1, -delta.y.toDouble()).toFloat()
+                                val oldZoom = localZoom
+                                val newZoom = (oldZoom * zoomFactor).coerceIn(0.1f, 3f)
+                                
+                                if (newZoom != oldZoom) {
+                                    val mousePos = changes.first().position
+                                    val layoutOffset = offsetAnim.value + (mousePos - offsetAnim.value) * (1 - newZoom / oldZoom)
+                                    localZoom = newZoom
+                                    onZoomChange(newZoom)
+                                    coroutineScope.launch {
+                                        offsetAnim.snapTo(layoutOffset)
+                                    }
+                                }
+                            } else {
+                                // Pan
+                                coroutineScope.launch {
+                                    offsetAnim.snapTo(offsetAnim.value - Offset(delta.x * 20f, delta.y * 20f))
+                                }
+                            }
+                            changes.forEach { it.consume() }
+                        } else {
+                            // Detect pinch from multi-touch if reported as separate pointers
+                            val zoomFactor = event.calculateZoom()
+                            if (zoomFactor != 1f) {
+                                val oldZoom = localZoom
+                                val newZoom = (oldZoom * zoomFactor).coerceIn(0.1f, 3f)
+                                if (newZoom != oldZoom) {
+                                    val centroid = event.calculateCentroid()
+                                    val layoutOffset = offsetAnim.value + (centroid - offsetAnim.value) * (1 - newZoom / oldZoom)
+                                    localZoom = newZoom
+                                    onZoomChange(newZoom)
+                                    coroutineScope.launch {
+                                        offsetAnim.snapTo(layoutOffset)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // Keep the transform gestures for non-scroll interactions
+            .pointerInput(isSelectMode) {
+                if (!isSelectMode) {
+                    detectTransformGestures { centroid, pan, gestureZoom, _ ->
+                        val oldZoom = localZoom
+                        val newZoom = (oldZoom * gestureZoom).coerceIn(0.1f, 3f)
+
+                        if (newZoom != oldZoom) {
+                            val layoutOffset = offsetAnim.value + (centroid - offsetAnim.value) * (1 - newZoom / oldZoom)
+                            localZoom = newZoom
+                            onZoomChange(newZoom)
+                            coroutineScope.launch {
+                                offsetAnim.snapTo(layoutOffset + pan)
+                            }
+                        } else {
+                            coroutineScope.launch {
+                                offsetAnim.snapTo(offsetAnim.value + pan)
+                            }
+                        }
+                    }
+                } else {
                     detectDragGestures(
                         onDragStart = { offset ->
                             marqueeStart = offset
@@ -66,15 +138,15 @@ fun GraphCanvas(
                         },
                         onDragEnd = {
                             if (marqueeStart != null && marqueeEnd != null) {
-                                val left = minOf(marqueeStart!!.x, marqueeEnd!!.x)
-                                val top = minOf(marqueeStart!!.y, marqueeEnd!!.y)
-                                val right = maxOf(marqueeStart!!.x, marqueeEnd!!.x)
-                                val bottom = maxOf(marqueeStart!!.y, marqueeEnd!!.y)
+                                val left = Math.min(marqueeStart!!.x, marqueeEnd!!.x)
+                                val top = Math.min(marqueeStart!!.y, marqueeEnd!!.y)
+                                val right = Math.max(marqueeStart!!.x, marqueeEnd!!.x)
+                                val bottom = Math.max(marqueeStart!!.y, marqueeEnd!!.y)
 
-                                val logLeft = (left - offsetAnim.value.x) / zoom
-                                val logTop = (top - offsetAnim.value.y) / zoom
-                                val logRight = (right - offsetAnim.value.x) / zoom
-                                val logBottom = (bottom - offsetAnim.value.y) / zoom
+                                val logLeft = (left - offsetAnim.value.x) / localZoom
+                                val logTop = (top - offsetAnim.value.y) / localZoom
+                                val logRight = (right - offsetAnim.value.x) / localZoom
+                                val logBottom = (bottom - offsetAnim.value.y) / localZoom
 
                                 val selRect = androidx.compose.ui.geometry.Rect(logLeft, logTop, logRight, logBottom)
 
@@ -96,47 +168,39 @@ fun GraphCanvas(
                         change.consume()
                         marqueeEnd = change.position
                     }
-                } else {
-                    detectTransformGestures { _, pan, gestureZoom, _ ->
-                        onZoomChange((zoom * gestureZoom).coerceIn(0.1f, 3f))
-                        coroutineScope.launch {
-                            offsetAnim.snapTo(offsetAnim.value + pan)
-                        }
-                    }
-                }
-            }
-            .pointerInput(Unit) {
-                awaitPointerEventScope {
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        if (event.type == PointerEventType.Scroll) {
-                            val delta = event.changes.first().scrollDelta
-                            coroutineScope.launch {
-                                offsetAnim.snapTo(
-                                    offsetAnim.value - Offset(delta.x * 20f, delta.y * 20f)
-                                )
-                            }
-                            event.changes.forEach { it.consume() }
-                        }
-                    }
                 }
             }) {
         val viewportWidth = constraints.maxWidth.toFloat()
         val viewportHeight = constraints.maxHeight.toFloat()
 
+        // Sync local state when external zoom changes (e.g. from buttons)
+        LaunchedEffect(zoom) {
+            if (Math.abs(zoom - localZoom) > 0.001f) {
+                val viewportCenter = Offset(viewportWidth / 2f, viewportHeight / 2f)
+
+                val oldZoom = localZoom
+                val newZoom = zoom
+                val layoutOffset = offsetAnim.value + (viewportCenter - offsetAnim.value) * (1 - newZoom / oldZoom)
+
+                localZoom = newZoom
+                offsetAnim.snapTo(layoutOffset)
+            }
+        }
+
         LaunchedEffect(selectedNodeIds) {
             if (selectedNodeIds.size == 1) {
                 val selectedNode = graph.nodes.find { it.id == selectedNodeIds.first() }
                 if (selectedNode != null) {
+                    val currentZoom = localZoom
                     val currentX = offsetAnim.value.x
                     val currentY = offsetAnim.value.y
 
-                    val nodeLeft = selectedNode.x.toFloat() * zoom + currentX
+                    val nodeLeft = selectedNode.x.toFloat() * currentZoom + currentX
                     val nodeRight =
-                        (selectedNode.x.toFloat() + selectedNode.width.toFloat()) * zoom + currentX
-                    val nodeTop = selectedNode.y.toFloat() * zoom + currentY
+                        (selectedNode.x.toFloat() + selectedNode.width.toFloat()) * currentZoom + currentX
+                    val nodeTop = selectedNode.y.toFloat() * currentZoom + currentY
                     val nodeBottom =
-                        (selectedNode.y.toFloat() + selectedNode.height.toFloat()) * zoom + currentY
+                        (selectedNode.y.toFloat() + selectedNode.height.toFloat()) * currentZoom + currentY
 
                     val margin = 20f
 
@@ -148,8 +212,8 @@ fun GraphCanvas(
                         val nodeCenterY =
                             selectedNode.y.toFloat() + (selectedNode.height.toFloat() / 2f)
 
-                        val targetX = (viewportWidth / 2f - nodeCenterX) * zoom
-                        val targetY = (viewportHeight / 2f - nodeCenterY) * zoom
+                        val targetX = (viewportWidth / 2f - nodeCenterX) * currentZoom
+                        val targetY = (viewportHeight / 2f - nodeCenterY) * currentZoom
 
                         offsetAnim.animateTo(Offset(targetX, targetY))
                     }
@@ -159,10 +223,11 @@ fun GraphCanvas(
 
         Box(
             modifier = Modifier.fillMaxSize().graphicsLayer {
-                scaleX = zoom
-                scaleY = zoom
+                scaleX = localZoom
+                scaleY = localZoom
                 translationX = offsetAnim.value.x
                 translationY = offsetAnim.value.y
+                transformOrigin = TransformOrigin(0f, 0f)
             }) {
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val activeNodeIds = if (hoveredNodeId != null) setOf(hoveredNodeId!!) else selectedNodeIds
@@ -263,8 +328,8 @@ fun GraphCanvas(
                                 .pointerInput(node.id + "_drag") {
                                     detectDragGestures { change, dragAmount ->
                                         change.consume()
-                                        val dx = dragAmount.x / zoom
-                                        val dy = dragAmount.y / zoom
+                                        val dx = dragAmount.x / localZoom
+                                        val dy = dragAmount.y / localZoom
 
                                         if (selectedNodeIds.contains(node.id)) {
                                             graph.nodes.filter { it.id in selectedNodeIds }.forEach { n ->
@@ -329,7 +394,7 @@ fun GraphCanvas(
                         coroutineScope.launch {
                             offsetAnim.snapTo(
                                 offsetAnim.value - Offset(
-                                    dragAmount.x / mapScale * zoom, dragAmount.y / mapScale * zoom
+                                    dragAmount.x / mapScale * localZoom, dragAmount.y / mapScale * localZoom
                                 )
                             )
                         }
@@ -350,10 +415,10 @@ fun GraphCanvas(
                         )
                     }
 
-                    val vpW = viewportWidth / zoom
-                    val vpH = viewportHeight / zoom
-                    val vpX = -offsetAnim.value.x / zoom
-                    val vpY = -offsetAnim.value.y / zoom
+                    val vpW = viewportWidth / localZoom
+                    val vpH = viewportHeight / localZoom
+                    val vpX = -offsetAnim.value.x / localZoom
+                    val vpY = -offsetAnim.value.y / localZoom
 
                     drawRect(
                         color = Color.Red.copy(alpha = 0.4f),
