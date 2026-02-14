@@ -57,17 +57,13 @@ fun NavigationTree(
                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                 // Color Dot
                 Box(
-                    modifier = Modifier
-                        .size(10.dp)
-                        .background(
-                            getGraphNodeColor(node),
-                            androidx.compose.foundation.shape.CircleShape
-                        )
-                        .border(
-                            1.dp,
-                            getGraphNodeBorderColor(node),
-                            androidx.compose.foundation.shape.CircleShape
-                        )
+                    modifier = Modifier.size(10.dp).background(
+                        getGraphNodeColor(node), androidx.compose.foundation.shape.CircleShape
+                    ).border(
+                        1.dp,
+                        getGraphNodeBorderColor(node),
+                        androidx.compose.foundation.shape.CircleShape
+                    )
                 )
                 Spacer(Modifier.width(8.dp))
 
@@ -108,8 +104,13 @@ private fun getNodeLabel(node: GraphNode): String {
     return when (node) {
         is GraphNode.MetadataNode -> "Meta: ${node.fileName}"
         is GraphNode.SnapshotNode -> "Snap: ${node.data.snapshotId}"
-        is GraphNode.ManifestNode -> "Manifest (${node.data.addedDataFilesCount} adds)"
-        is GraphNode.FileNode -> "File: ${node.data.filePath?.substringAfterLast("/")}"
-        is GraphNode.RowNode -> "Row: ${node.data.values.firstOrNull() ?: "..."}" // NEW
+        is GraphNode.ManifestNode -> "Manifest (${node.data.addedFilesCount} adds)"
+        is GraphNode.FileNode     -> "File ${node.simpleId}: ${
+            node.data.filePath?.substringAfterLast(
+                "/"
+            )
+        }"
+
+        is GraphNode.RowNode      -> "Row: ${node.data.values.firstOrNull() ?: "..."}"
     }
 }

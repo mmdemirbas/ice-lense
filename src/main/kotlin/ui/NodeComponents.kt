@@ -95,7 +95,7 @@ fun ManifestCard(node: GraphNode.ManifestNode, onClick: (GraphNode) -> Unit) {
                 fontSize = 9.sp,
                 fontWeight = FontWeight.Bold
             )
-            Text("Added: ${node.data.addedDataFilesCount} files", fontSize = 11.sp)
+            Text("Added: ${node.data.addedFilesCount} files", fontSize = 11.sp)
         }
     }
 }
@@ -115,7 +115,7 @@ fun FileCard(node: GraphNode.FileNode, onClick: (GraphNode) -> Unit) {
         .padding(4.dp)) {
         Column {
             Text(
-                if (isDelete) "DEL FILE" else "DATA FILE",
+                if (isDelete) "DEL FILE ${node.simpleId}" else "DATA FILE ${node.simpleId}",
                 fontSize = 8.sp,
                 fontWeight = FontWeight.Bold
             )

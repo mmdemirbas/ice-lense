@@ -47,6 +47,7 @@ sealed class GraphNode(
     data class FileNode(
         override val id: String,
         val data: DataFile,
+        val simpleId: Int,
         val initialX: Double = 0.0,
         val initialY: Double = 0.0,
     ) : GraphNode(id, initialX, initialY, 200.0, 60.0)

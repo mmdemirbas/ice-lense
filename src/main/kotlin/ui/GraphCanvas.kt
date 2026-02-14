@@ -31,13 +31,14 @@ import kotlin.math.min
 @Composable
 fun GraphCanvas(
     graph: GraphModel,
-    selectedNode: GraphNode?, // 1. Pass selected node to canvas
+    selectedNode: GraphNode?,
     onNodeClick: (GraphNode) -> Unit,
 ) {
     var zoom by remember { mutableStateOf(1f) }
-    // 2. Use Animatable for smooth panning
     val offsetAnim = remember { Animatable(Offset(100f, 100f), Offset.VectorConverter) }
     val coroutineScope = rememberCoroutineScope()
+
+    var hoveredNodeId by remember { mutableStateOf<String?>(null) }
 
     // 3. Use BoxWithConstraints to know viewport dimensions
     BoxWithConstraints(
@@ -60,9 +61,7 @@ fun GraphCanvas(
                         val delta = event.changes.first().scrollDelta
                         coroutineScope.launch {
                             offsetAnim.snapTo(
-                                offsetAnim.value - Offset(
-                                    delta.x * 20f, delta.y * 20f
-                                )
+                                offsetAnim.value - Offset(delta.x * 20f, delta.y * 20f)
                             )
                         }
                         event.changes.forEach { it.consume() }
@@ -76,15 +75,31 @@ fun GraphCanvas(
         // 4. Calculate offset to center the node when selection changes
         LaunchedEffect(selectedNode) {
             if (selectedNode != null) {
-                val nodeCenterX = selectedNode.x.toFloat() + (selectedNode.width.toFloat() / 2f)
-                val nodeCenterY = selectedNode.y.toFloat() + (selectedNode.height.toFloat() / 2f)
+                val currentX = offsetAnim.value.x
+                val currentY = offsetAnim.value.y
 
-                // GraphicsLayer default transformOrigin is Center.
-                // Formula resolves scaled distance from center.
-                val targetX = (viewportWidth / 2f - nodeCenterX) * zoom
-                val targetY = (viewportHeight / 2f - nodeCenterY) * zoom
+                val nodeLeft = selectedNode.x.toFloat() * zoom + currentX
+                val nodeRight =
+                    (selectedNode.x.toFloat() + selectedNode.width.toFloat()) * zoom + currentX
+                val nodeTop = selectedNode.y.toFloat() * zoom + currentY
+                val nodeBottom =
+                    (selectedNode.y.toFloat() + selectedNode.height.toFloat()) * zoom + currentY
 
-                offsetAnim.animateTo(Offset(targetX, targetY))
+                val margin = 50f // Keep a 50px padding from the edge
+
+                val isVisible =
+                    nodeLeft >= margin && nodeRight <= (viewportWidth - margin) && nodeTop >= margin && nodeBottom <= (viewportHeight - margin)
+
+                if (!isVisible) {
+                    val nodeCenterX = selectedNode.x.toFloat() + (selectedNode.width.toFloat() / 2f)
+                    val nodeCenterY =
+                        selectedNode.y.toFloat() + (selectedNode.height.toFloat() / 2f)
+
+                    val targetX = (viewportWidth / 2f - nodeCenterX) * zoom
+                    val targetY = (viewportHeight / 2f - nodeCenterY) * zoom
+
+                    offsetAnim.animateTo(Offset(targetX, targetY))
+                }
             }
         }
 
@@ -96,14 +111,18 @@ fun GraphCanvas(
                 translationY = offsetAnim.value.y
             }) {
             Canvas(modifier = Modifier.fillMaxSize()) {
-                val path = Path()
+                val activeNodeId = hoveredNodeId ?: selectedNode?.id
+
+                val normalEdges = mutableListOf<Path>()
+                val highlightedEdges = mutableListOf<Path>()
+
                 graph.edges.forEach { edge ->
                     val source = graph.nodes.find { it.id == edge.fromId }
                     val target = graph.nodes.find { it.id == edge.toId }
 
                     if (source != null && target != null) {
+                        val path = Path()
                         if (edge.isSibling) {
-                            // SIBLING ROUTING: Bottom center to Top center (Vertical Manhattan)
                             val startX = (source.x + source.width / 2).toFloat()
                             val startY = (source.y + source.height).toFloat()
                             val endX = (target.x + target.width / 2).toFloat()
@@ -115,13 +134,10 @@ fun GraphCanvas(
                             path.lineTo(endX, midY)
                             path.lineTo(endX, endY)
                         } else {
-                            // HIERARCHY ROUTING: Right center to Left center (Horizontal Manhattan)
                             val startX = (source.x + source.width).toFloat()
                             val startY = (source.y + source.height / 2).toFloat()
                             val endX = target.x.toFloat()
                             val endY = (target.y + target.height / 2).toFloat()
-
-                            // Calculate midpoint for Manhattan right-angles
                             val midX = startX + (endX - startX) / 2f
 
                             path.moveTo(startX, startY)
@@ -129,16 +145,41 @@ fun GraphCanvas(
                             path.lineTo(midX, endY)
                             path.lineTo(endX, endY)
                         }
+
+                        // Check if edge connects to the active node
+                        if (edge.fromId == activeNodeId || edge.toId == activeNodeId) {
+                            highlightedEdges.add(path)
+                        } else {
+                            normalEdges.add(path)
+                        }
                     }
                 }
-                drawPath(path, Color.Black, style = Stroke(width = 2f))
+
+                // Draw background edges first
+                normalEdges.forEach { path ->
+                    drawPath(path, Color.LightGray, style = Stroke(width = 2f))
+                }
+                // Draw active edges on top, thicker and colored
+                highlightedEdges.forEach { path ->
+                    drawPath(path, Color(0xFF1976D2), style = Stroke(width = 4f))
+                }
             }
 
             graph.nodes.forEach { node ->
-                Box(
-                    modifier = Modifier
-                    .offset { IntOffset(node.x.toInt(), node.y.toInt()) }
+                Box(modifier = Modifier.offset { IntOffset(node.x.toInt(), node.y.toInt()) }
+                    // Hover detection
                     .pointerInput(node.id) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                if (event.type == PointerEventType.Enter) {
+                                    hoveredNodeId = node.id
+                                } else if (event.type == PointerEventType.Exit) {
+                                    hoveredNodeId = null
+                                }
+                            }
+                        }
+                    }.pointerInput(node.id + "_drag") {
                         detectDragGestures { change, dragAmount ->
                             change.consume()
                             node.x += dragAmount.x / zoom
@@ -149,8 +190,8 @@ fun GraphCanvas(
                         is GraphNode.MetadataNode -> MetadataCard(node, onNodeClick)
                         is GraphNode.SnapshotNode -> SnapshotCard(node, onNodeClick)
                         is GraphNode.ManifestNode -> ManifestCard(node, onNodeClick)
-                        is GraphNode.FileNode -> FileCard(node, onNodeClick)
-                        is GraphNode.RowNode -> RowCard(node, onNodeClick) // NEW
+                        is GraphNode.FileNode     -> FileCard(node, onNodeClick)
+                        is GraphNode.RowNode      -> RowCard(node, onNodeClick) // NEW
                     }
                 }
             }

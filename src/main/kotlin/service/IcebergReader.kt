@@ -49,7 +49,15 @@ object IcebergReader {
         val schema = Avro.schema<T>()
 
         dataFileReader.forEach { record ->
-            @Suppress("DEPRECATION") entries.add(Avro.decodeFromGenericData(schema, record))
+            try {
+                @Suppress("DEPRECATION") entries.add(Avro.decodeFromGenericData(schema, record))
+            } catch (e: Exception) {
+                System.err.println("Error parsing Avro record")
+                System.err.println("File: $file")
+                System.err.println("Schema: $schema")
+                System.err.println("Record: $record")
+                throw e
+            }
         }
 
         dataFileReader.close()

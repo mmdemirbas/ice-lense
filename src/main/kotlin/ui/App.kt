@@ -1,17 +1,20 @@
 package ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.material3.VerticalDivider
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -19,6 +22,7 @@ import model.GraphModel
 import model.GraphNode
 import model.UnifiedTableModel
 import service.GraphLayoutService
+import java.awt.Cursor
 import java.io.File
 import java.nio.file.Paths
 import java.util.prefs.Preferences
@@ -34,6 +38,24 @@ data class TableSession(
     val graph: GraphModel,
     var selectedNodeId: String? = null,
 )
+
+// NEW: Helper for draggable pane resizing
+@Composable
+fun DraggableDivider(onDrag: (Float) -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxHeight()
+            .width(8.dp)
+            .pointerHoverIcon(PointerIcon(Cursor(Cursor.E_RESIZE_CURSOR)))
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures { change, dragAmount ->
+                    change.consume()
+                    onDrag(dragAmount)
+                }
+            }) {
+        VerticalDivider(modifier = Modifier.align(Alignment.Center))
+    }
+}
 
 @Composable
 fun App() {
@@ -55,6 +77,13 @@ fun App() {
 
     // Coroutine scope for async DB queries
     val coroutineScope = rememberCoroutineScope()
+
+    // UI Configuration State
+    var leftPaneWidth by remember { mutableStateOf(250.dp) }
+    var rightPaneWidth by remember { mutableStateOf(300.dp) }
+    var isLeftPaneVisible by remember { mutableStateOf(true) }
+    var isRightPaneVisible by remember { mutableStateOf(true) }
+    val density = LocalDensity.current
 
     // Logic to scan a warehouse for valid Iceberg tables
     fun scanWarehouse(path: String) {
@@ -118,175 +147,233 @@ fun App() {
     }
 
     MaterialTheme {
-        Row(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize()) {
 
-            // 1. Left Sidebar (20% width)
-            Box(Modifier.weight(0.2f).fillMaxHeight()) {
-                // Sidebar callback, save the preference and selection
-                Sidebar(
-                    warehousePath = warehousePath,
-                    tables = availableTables,
-                    selectedTable = selectedTable,
-                    showRows = showRows,
-                    onShowRowsChange = {
-                        showRows = it
-                        prefs.putBoolean(PREF_SHOW_ROWS, it) // Save to OS
-                        if (selectedTable != null) loadTable(selectedTable!!, it)
-                    },
-                    onTableSelect = { newTable ->
-                        // Save current selection before leaving
-                        if (selectedTable != null && graphModel != null) {
-                            val oldKey = "$selectedTable-rows_$showRows"
-                            sessionCache[oldKey]?.selectedNodeId = selectedNode?.id
-                        }
-                        loadTable(newTable)
-                    },
-                    onWarehouseChange = { newPath ->
-                        warehousePath = newPath
-                        prefs.put(PREF_WAREHOUSE_PATH, newPath) // Persist to OS
-                        scanWarehouse(newPath)
+            // NEW: Top Toolbar for UI Controls
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .height(40.dp)
+                    .background(Color(0xFFEEEEEE))
+                    .padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(onClick = { isLeftPaneVisible = !isLeftPaneVisible }) {
+                    Text(if (isLeftPaneVisible) "◀ Hide Sidebar" else "Sidebar ▶", fontSize = 12.sp)
+                }
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = { isRightPaneVisible = !isRightPaneVisible }) {
+                    Text(
+                        if (isRightPaneVisible) "Hide Inspector ▶" else "◀ Inspector",
+                        fontSize = 12.sp
+                    )
+                }
+            }
+            HorizontalDivider()
+
+            Row(Modifier.weight(1f)) {
+
+                // 1. Resizable Left Sidebar
+                if (isLeftPaneVisible) {
+                    Box(Modifier.width(leftPaneWidth).fillMaxHeight()) {
+                        Sidebar(
+                            warehousePath = warehousePath,
+                            tables = availableTables,
+                            selectedTable = selectedTable,
+                            showRows = showRows,
+                            onShowRowsChange = {
+                                showRows = it
+                                prefs.putBoolean(PREF_SHOW_ROWS, it)
+                                if (selectedTable != null) loadTable(selectedTable!!, it)
+                            },
+                            onTableSelect = { newTable ->
+                                if (selectedTable != null && graphModel != null) {
+                                    val oldKey = "$selectedTable-rows_$showRows"
+                                    sessionCache[oldKey]?.selectedNodeId = selectedNode?.id
+                                }
+                                loadTable(newTable)
+                            },
+                            onWarehouseChange = { newPath ->
+                                warehousePath = newPath
+                                prefs.put(PREF_WAREHOUSE_PATH, newPath)
+                                scanWarehouse(newPath)
+                            })
+                    }
+                    DraggableDivider(onDrag = { delta ->
+                        val deltaDp = with(density) { delta.toDp() }
+                        leftPaneWidth = (leftPaneWidth + deltaDp).coerceIn(150.dp, 500.dp)
                     })
-            }
-
-            VerticalDivider()
-
-            // 2. Main Canvas (60% width)
-            Box(Modifier.weight(0.6f).fillMaxHeight().clipToBounds()) {
-                if (graphModel != null) {
-                    GraphCanvas(graphModel!!, selectedNode) { node ->
-                        selectedNode = node
-                    }
-                } else if (warehousePath != null && availableTables.isEmpty()) {
-                    Text(
-                        "No Iceberg tables found in this warehouse.",
-                        color = Color.Gray,
-                        modifier = Modifier.align(Alignment.Center)
-                    )
                 }
 
-                if (errorMsg != null) {
-                    Text(
-                        "Error: $errorMsg",
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp)
-                    )
-                }
-            }
-
-            VerticalDivider()
-
-            // 3. Right Inspector Panel (20% width)
-            Column(Modifier.weight(0.2f).fillMaxHeight().padding(8.dp)) {
-
-                // Top Half: Navigation Tree
-                Text("Structure Tree", style = MaterialTheme.typography.headlineSmall)
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
-                Box(Modifier.weight(0.5f).fillMaxWidth()) {
+                // 2. Main Canvas
+                Box(Modifier.weight(1f).fillMaxHeight().clipToBounds()) {
                     if (graphModel != null) {
-                        NavigationTree(
-                            graph = graphModel!!,
-                            selectedNode = selectedNode,
-                            onNodeSelect = { selectedNode = it })
-                    } else {
-                        Text("No graph loaded.", fontSize = 12.sp, color = Color.Gray)
+                        GraphCanvas(graphModel!!, selectedNode) { node ->
+                            selectedNode = node
+                        }
+                    } else if (warehousePath != null && availableTables.isEmpty()) {
+                        Text(
+                            "No Iceberg tables found in this warehouse.",
+                            color = Color.Gray,
+                            modifier = Modifier.align(Alignment.Center)
+                        )
+                    }
+
+                    if (errorMsg != null) {
+                        Text(
+                            "Error: $errorMsg",
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp)
+                        )
                     }
                 }
 
-                Spacer(Modifier.height(16.dp))
+                // 3. Resizable Right Inspector Panel
+                if (isRightPaneVisible) {
+                    DraggableDivider(onDrag = { delta ->
+                        val deltaDp = with(density) { delta.toDp() }
+                        // Subtracting delta because dragging left increases the right pane's width
+                        rightPaneWidth = (rightPaneWidth - deltaDp).coerceIn(200.dp, 600.dp)
+                    })
 
-                // Bottom Half: Node Details
-                Text("Node Details", style = MaterialTheme.typography.headlineSmall)
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                    Column(Modifier.width(rightPaneWidth).fillMaxHeight().padding(8.dp)) {
+                        Text("Structure Tree", style = MaterialTheme.typography.headlineSmall)
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
-                Box(Modifier.weight(0.5f).fillMaxWidth()) {
-                    selectedNode?.let { node ->
-                        Column(
-                            Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-                        ) { // NEW: Scrollable details
-                            when (node) {
-                                is GraphNode.MetadataNode -> {
-                                    DetailRow("Type", "Metadata File")
-                                    DetailRow("Format Version", "${node.data.formatVersion}")
-                                    DetailRow("Table UUID", "${node.data.tableUuid}")
-                                    DetailRow("Location", "${node.data.location}")
-                                    DetailRow("Current Snapshot", "${node.data.currentSnapshotId}")
-                                    DetailRow("Total Snapshots", "${node.data.snapshots.size}")
-                                }
-
-                                is GraphNode.SnapshotNode -> {
-                                    DetailRow("Type", "Snapshot")
-                                    DetailRow("ID", "${node.data.snapshotId}")
-                                    DetailRow(
-                                        "Parent ID", "${node.data.parentSnapshotId ?: "None"}"
-                                    )
-                                    DetailRow("Timestamp", "${node.data.timestampMs}")
-                                    DetailRow(
-                                        "Operation",
-                                        "${node.data.summary["operation"] ?: "unknown"}"
-                                    )
-                                    DetailRow(
-                                        "Manifest List",
-                                        "${node.data.manifestList?.substringAfterLast("/")}"
-                                    )
-
-                                    Spacer(Modifier.height(8.dp))
-                                    Text("Summary:", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                    node.data.summary
-                                        .filterKeys { it != "operation" }
-                                        .forEach { (k, v) ->
-                                            DetailRow(k, v)
-                                        }
-                                }
-
-                                is GraphNode.ManifestNode -> {
-                                    val contentType =
-                                        if (node.data.content == 1) "Delete" else "Data"
-                                    DetailRow("Type", "Manifest Entry ($contentType)")
-                                    DetailRow("Snapshot ID", "${node.data.addedSnapshotId}")
-                                    DetailRow("Added Files", "${node.data.addedDataFilesCount}")
-                                    DetailRow("Added Rows", "${node.data.addedRowsCount}")
-                                    DetailRow(
-                                        "Path", "${node.data.manifestPath?.substringAfterLast("/")}"
-                                    )
-                                }
-
-                                is GraphNode.FileNode     -> {
-                                    val contentType = when (node.data.content ?: 0) {
-                                        1 -> "Position Delete"
-                                        2 -> "Equality Delete"
-                                        else -> "Data"
-                                    }
-                                    DetailRow("Type", "Parquet File ($contentType)")
-                                    DetailRow("Format", "${node.data.fileFormat}")
-                                    DetailRow("Record Count", "${node.data.recordCount}")
-                                    DetailRow("File Size", "${node.data.fileSizeInBytes} bytes")
-                                    DetailRow(
-                                        "Path", "${node.data.filePath?.substringAfterLast("/")}"
-                                    )
-                                }
-
-                                is GraphNode.RowNode      -> {
-                                    DetailRow(
-                                        "Type", if (node.isDelete) "Delete Row" else "Data Row"
-                                    )
-                                    Spacer(Modifier.height(8.dp))
-                                    Text(
-                                        "Record Data:",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 12.sp
-                                    )
-                                    node.data.forEach { (k, v) ->
-                                        DetailRow(k, "$v")
-                                    }
-                                }
-
-                                else                      -> Text("Unknown Node", fontSize = 12.sp)
+                        Box(Modifier.weight(0.5f).fillMaxWidth()) {
+                            if (graphModel != null) {
+                                NavigationTree(
+                                    graph = graphModel!!,
+                                    selectedNode = selectedNode,
+                                    onNodeSelect = { selectedNode = it })
+                            } else {
+                                Text("No graph loaded.", fontSize = 12.sp, color = Color.Gray)
                             }
                         }
-                    } ?: Text(
-                        "Select a node to view details.", fontSize = 12.sp, color = Color.Gray
-                    )
+
+                        Spacer(Modifier.height(16.dp))
+
+                        Text("Node Details", style = MaterialTheme.typography.headlineSmall)
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                        Box(Modifier.weight(0.5f).fillMaxWidth()) {
+                            selectedNode?.let { node ->
+                                Column(
+                                    Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                                ) {
+                                    when (node) {
+                                        is GraphNode.MetadataNode -> {
+                                            DetailRow("Type", "Metadata File")
+                                            DetailRow(
+                                                "Format Version", "${node.data.formatVersion}"
+                                            )
+                                            DetailRow("Table UUID", "${node.data.tableUuid}")
+                                            DetailRow("Location", "${node.data.location}")
+                                            DetailRow(
+                                                "Current Snapshot", "${node.data.currentSnapshotId}"
+                                            )
+                                            DetailRow(
+                                                "Total Snapshots", "${node.data.snapshots.size}"
+                                            )
+                                        }
+
+                                        is GraphNode.SnapshotNode -> {
+                                            DetailRow("Type", "Snapshot")
+                                            DetailRow("ID", "${node.data.snapshotId}")
+                                            DetailRow(
+                                                "Parent ID",
+                                                "${node.data.parentSnapshotId ?: "None"}"
+                                            )
+                                            DetailRow("Timestamp", "${node.data.timestampMs}")
+                                            DetailRow(
+                                                "Operation",
+                                                "${node.data.summary["operation"] ?: "unknown"}"
+                                            )
+                                            DetailRow(
+                                                "Manifest List", "${
+                                                    node.data.manifestList?.substringAfterLast(
+                                                        "/"
+                                                    )
+                                                }"
+                                            )
+
+                                            Spacer(Modifier.height(8.dp))
+                                            Text(
+                                                "Summary:",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 12.sp
+                                            )
+                                            node.data.summary
+                                                .filterKeys { it != "operation" }
+                                                .forEach { (k, v) ->
+                                                    DetailRow(k, v)
+                                                }
+                                        }
+
+                                        is GraphNode.ManifestNode -> {
+                                            val contentType =
+                                                if (node.data.content == 1) "Delete" else "Data"
+                                            DetailRow("Type", "Manifest Entry ($contentType)")
+                                            DetailRow("Snapshot ID", "${node.data.addedSnapshotId}")
+                                            DetailRow(
+                                                "Added Files", "${node.data.addedFilesCount}"
+                                            )
+                                            DetailRow("Added Rows", "${node.data.addedRowsCount}")
+                                            DetailRow(
+                                                "Path", "${
+                                                    node.data.manifestPath?.substringAfterLast(
+                                                        "/"
+                                                    )
+                                                }"
+                                            )
+                                        }
+
+                                        is GraphNode.FileNode     -> {
+                                            val contentType = when (node.data.content ?: 0) {
+                                                1 -> "Position Delete"
+                                                2 -> "Equality Delete"
+                                                else -> "Data"
+                                            }
+                                            DetailRow("Type", "Parquet File ($contentType)")
+                                            DetailRow("File ID", "${node.simpleId}")
+                                            DetailRow("Format", "${node.data.fileFormat}")
+                                            DetailRow("Record Count", "${node.data.recordCount}")
+                                            DetailRow(
+                                                "File Size", "${node.data.fileSizeInBytes} bytes"
+                                            )
+                                            DetailRow(
+                                                "Path",
+                                                "${node.data.filePath?.substringAfterLast("/")}"
+                                            )
+                                        }
+
+                                        is GraphNode.RowNode      -> {
+                                            DetailRow(
+                                                "Type",
+                                                if (node.isDelete) "Delete Row" else "Data Row"
+                                            )
+                                            Spacer(Modifier.height(8.dp))
+                                            Text(
+                                                "Record Data:",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 12.sp
+                                            )
+                                            node.data.forEach { (k, v) ->
+                                                DetailRow(k, "$v")
+                                            }
+                                        }
+
+                                        else                      -> Text(
+                                            "Unknown Node", fontSize = 12.sp
+                                        )
+                                    }
+                                }
+                            } ?: Text(
+                                "Select a node to view details.",
+                                fontSize = 12.sp,
+                                color = Color.Gray
+                            )
+                        }
+                    }
                 }
             }
         }

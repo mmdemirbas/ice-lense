@@ -40,6 +40,10 @@ object GraphLayoutService {
         val logicalNodes = mutableMapOf<String, GraphNode>()
         val edges = mutableListOf<GraphEdge>()
 
+        // Registry to map long Iceberg paths to simple IDs
+        var nextFileId = 1
+        val filePathToSimpleId = mutableMapOf<String, Int>()
+
         // 1. COLUMN 1: Lineage of Metadata Files
         tableModel.metadatas.forEach { metadata ->
             val fileName = metadata.path.fileName.toString()
@@ -86,7 +90,9 @@ object GraphLayoutService {
                             val fId = "file_${mId}_$fIdx"
                             elkNodes[fId] = createElkNode(root, fId, 200.0, 60.0)
                             val dataFile = entry.dataFile ?: DataFile(filePath = "unknown")
-                            logicalNodes[fId] = GraphNode.FileNode(fId, dataFile)
+                            val rawPath = dataFile.filePath.orEmpty()
+                            val simpleId = filePathToSimpleId.getOrPut(rawPath) { nextFileId++ }
+                            logicalNodes[fId] = GraphNode.FileNode(fId, dataFile, simpleId)
 
                             // Hierarchy Edge (Column 4 -> Column 5)
                             ElkGraphUtil.createSimpleEdge(elkNodes[mId], elkNodes[fId])
@@ -108,16 +114,28 @@ object GraphLayoutService {
 
                                 if (localFile.exists()) {
                                     try {
-                                    val isDeleteFile = (entry.dataFile?.content ?: 0) > 0
+                                        val isDeleteFile = (entry.dataFile?.content ?: 0) > 0
 
                                         unifiedDataFile.rows
                                             .take(5)
                                             .forEachIndexed { rIdx, rowData ->
+                                                val enrichedData = rowData.cells.toMutableMap()
+                                                if (isDeleteFile && enrichedData.containsKey("file_path")) {
+                                                    val targetPath =
+                                                        enrichedData["file_path"].toString()
+                                                    val targetId =
+                                                        filePathToSimpleId[targetPath] ?: "?"
+                                                    // Add clean reference and remove the long path to save UI space
+                                                    enrichedData["target_file"] = "File $targetId"
+                                                    enrichedData.remove("file_path")
+                                                }
+
                                                 val rId = "row_${fId}_$rIdx"
                                                 elkNodes[rId] =
                                                     createElkNode(root, rId, 200.0, 80.0)
-                                                logicalNodes[rId] =
-                                                    GraphNode.RowNode(rId, rowData.cells, isDeleteFile)
+                                                logicalNodes[rId] = GraphNode.RowNode(
+                                                    rId, rowData.cells, isDeleteFile
+                                                )
 
                                                 // Hierarchy Edge (Column 5 -> Column 6)
                                                 ElkGraphUtil.createSimpleEdge(
