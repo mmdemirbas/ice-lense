@@ -69,7 +69,6 @@ private const val PREF_SHOW_DATA_FILES = "show_data_files"
 private const val PREF_IS_SELECT_MODE = "is_select_mode"
 private const val PREF_WORKSPACE_ITEMS = "workspace_items"
 private const val PREF_WORKSPACE_EXPANDED_PATHS = "workspace_expanded_paths"
-private const val PREF_AUTO_RELOAD_TABLE = "auto_reload_table"
 
 // Data class to hold cached table sessions
 data class TableSession(
@@ -236,8 +235,6 @@ fun App() {
     var warehouseTableStatuses by remember { mutableStateOf(initialWarehouseTableStatuses(workspaceItems)) }
     var isLoadingTable by remember { mutableStateOf(false) }
     var loadRequestId by remember { mutableStateOf(0L) }
-    var autoReloadTable by remember { mutableStateOf(prefs.getBoolean(PREF_AUTO_RELOAD_TABLE, true)) }
-
     var showRows by remember { mutableStateOf(prefs.getBoolean(PREF_SHOW_ROWS, true)) }
     var isSelectMode by remember { mutableStateOf(prefs.getBoolean(PREF_IS_SELECT_MODE, false)) }
     var zoom by remember { mutableStateOf(prefs.getFloat(PREF_ZOOM, 1f)) }
@@ -563,13 +560,17 @@ fun App() {
                     errorMsg = "Table was deleted from filesystem. Showing latest cached snapshot."
                 } else {
                     errorMsg = "Table was deleted from filesystem and no cached snapshot is available."
-                    setGraphModelAndBump(null)
+                    if (!forceReloadFromFs) {
+                        setGraphModelAndBump(null)
+                    }
                 }
             } catch (e: Exception) {
                 if (requestId != loadRequestId) return@launch
                 errorMsg = e.message
                 e.printStackTrace()
-                setGraphModelAndBump(null)
+                if (!forceReloadFromFs) {
+                    setGraphModelAndBump(null)
+                }
             } finally {
                 if (requestId == loadRequestId) {
                     isLoadingTable = false
@@ -833,28 +834,6 @@ fun App() {
                     )
                 }
 
-                Spacer(Modifier.width(8.dp))
-
-                ToolbarGroup {
-                    ToolbarIconButton(
-                        icon = Icons.Default.Sync,
-                        tooltip = "Reload from Filesystem",
-                        onClick = { reloadCurrentTableFromFilesystem(preserveLayout = true) },
-                        modifier = Modifier.size(32.dp)
-                    )
-                    Box(Modifier.width(1.dp).height(16.dp).background(Color(0xFFCCCCCC)))
-                    ToolbarIconButton(
-                        icon = Icons.Default.Schedule,
-                        tooltip = if (autoReloadTable) "Auto Reload: On" else "Auto Reload: Off",
-                        onClick = {
-                            autoReloadTable = !autoReloadTable
-                            prefs.putBoolean(PREF_AUTO_RELOAD_TABLE, autoReloadTable)
-                        },
-                        isSelected = autoReloadTable,
-                        modifier = Modifier.size(32.dp)
-                    )
-                }
-
                 Spacer(Modifier.weight(1f))
             }
             HorizontalDivider()
@@ -943,7 +922,11 @@ fun App() {
                     }
                     DraggableVerticalDivider(onDrag = { delta ->
                         val deltaDp = with(density) { delta.toDp() }
-                        leftPaneWidth = (leftPaneWidth + deltaDp).coerceIn(150.dp, 500.dp)
+                        val windowWidthDp = with(density) { (appWindowBounds?.width ?: 1600f).toDp() }
+                        // Keep at least 260.dp for center canvas and reserve current right pane width when visible.
+                        val reservedRight = if (activeRightToolWindowId.isNotEmpty()) rightPaneWidth else 0.dp
+                        val maxLeftWidth = (windowWidthDp - reservedRight - 260.dp).coerceAtLeast(150.dp)
+                        leftPaneWidth = (leftPaneWidth + deltaDp).coerceIn(150.dp, maxLeftWidth)
                         prefs.putFloat(PREF_LEFT_PANE_WIDTH, leftPaneWidth.value)
                     })
                 }
@@ -1125,8 +1108,7 @@ fun App() {
         }
     }
 
-    LaunchedEffect(selectedTablePath, showRows, autoReloadTable) {
-        if (!autoReloadTable) return@LaunchedEffect
+    LaunchedEffect(selectedTablePath, showRows) {
         while (isActive) {
             val tablePath = selectedTablePath
             if (tablePath != null && !isLoadingTable) {
@@ -1147,8 +1129,7 @@ fun App() {
         refreshWarehouseTables()
     }
 
-    LaunchedEffect(autoReloadTable) {
-        if (!autoReloadTable) return@LaunchedEffect
+    LaunchedEffect(Unit) {
         while (isActive) {
             refreshWarehouseTables()
             delay(3000)
