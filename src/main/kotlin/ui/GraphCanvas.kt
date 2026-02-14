@@ -43,6 +43,7 @@ fun GraphCanvas(
     zoom: Float,
     onZoomChange: (Float) -> Unit,
     onSelectionChange: (Set<String>) -> Unit,
+    onEmptyAreaDoubleClick: () -> Unit = {},
 ) {
     val offsetAnim = remember { Animatable(Offset(100f, 100f), Offset.VectorConverter) }
     val coroutineScope = rememberCoroutineScope()
@@ -230,7 +231,10 @@ fun GraphCanvas(
                 transformOrigin = TransformOrigin(0f, 0f)
             }) {
             Canvas(modifier = Modifier.fillMaxSize().pointerInput(Unit) {
-                detectTapGestures(onTap = { onSelectionChange(emptySet()) })
+                detectTapGestures(
+                    onTap = { onSelectionChange(emptySet()) },
+                    onDoubleTap = { onEmptyAreaDoubleClick() }
+                )
             }) {
                 val activeNodeIds = if (hoveredNodeId != null) setOf(hoveredNodeId!!) else selectedNodeIds
 

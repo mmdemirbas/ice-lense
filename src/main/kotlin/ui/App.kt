@@ -2,12 +2,12 @@ package ui
 
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ViewSidebar
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -15,12 +15,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -44,8 +47,12 @@ private const val PREF_WAREHOUSE_PATH = "last_warehouse_path"
 private const val PREF_SHOW_ROWS = "show_data_rows"
 private const val PREF_LEFT_PANE_WIDTH = "left_pane_width"
 private const val PREF_RIGHT_PANE_WIDTH = "right_pane_width"
+private const val PREF_TOP_PANE_HEIGHT = "top_pane_height"
+private const val PREF_BOTTOM_PANE_HEIGHT = "bottom_pane_height"
 private const val PREF_ACTIVE_LEFT_WINDOW = "active_left_window"
 private const val PREF_ACTIVE_RIGHT_WINDOW = "active_right_window"
+private const val PREF_ACTIVE_TOP_WINDOW = "active_top_window"
+private const val PREF_ACTIVE_BOTTOM_WINDOW = "active_bottom_window"
 private const val PREF_WINDOW_ANCHORS = "tool_window_anchors"
 private const val PREF_ZOOM = "zoom"
 private const val PREF_SHOW_METADATA = "show_metadata"
@@ -63,7 +70,7 @@ data class TableSession(
 )
 
 @Composable
-fun DraggableDivider(onDrag: (Float) -> Unit) {
+fun DraggableVerticalDivider(onDrag: (Float) -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxHeight()
@@ -76,6 +83,23 @@ fun DraggableDivider(onDrag: (Float) -> Unit) {
                 }
             }) {
         VerticalDivider(modifier = Modifier.align(Alignment.Center))
+    }
+}
+
+@Composable
+fun DraggableHorizontalDivider(onDrag: (Float) -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(8.dp)
+            .pointerHoverIcon(PointerIcon(Cursor(Cursor.N_RESIZE_CURSOR)))
+            .pointerInput(Unit) {
+                detectVerticalDragGestures { change, dragAmount ->
+                    change.consume()
+                    onDrag(dragAmount)
+                }
+            }) {
+        HorizontalDivider(modifier = Modifier.align(Alignment.Center))
     }
 }
 
@@ -181,17 +205,35 @@ fun App() {
 
     var leftPaneWidth by remember { mutableStateOf(prefs.getFloat(PREF_LEFT_PANE_WIDTH, 250f).dp) }
     var rightPaneWidth by remember { mutableStateOf(prefs.getFloat(PREF_RIGHT_PANE_WIDTH, 300f).dp) }
+    var topPaneHeight by remember { mutableStateOf(prefs.getFloat(PREF_TOP_PANE_HEIGHT, 220f).dp) }
+    var bottomPaneHeight by remember { mutableStateOf(prefs.getFloat(PREF_BOTTOM_PANE_HEIGHT, 220f).dp) }
     val density = LocalDensity.current
 
     var activeLeftToolWindowId by remember { mutableStateOf(prefs.get(PREF_ACTIVE_LEFT_WINDOW, "workspace")) }
     var activeRightToolWindowId by remember { mutableStateOf(prefs.get(PREF_ACTIVE_RIGHT_WINDOW, "structure")) }
+    var activeTopToolWindowId by remember { mutableStateOf(prefs.get(PREF_ACTIVE_TOP_WINDOW, "")) }
+    var activeBottomToolWindowId by remember { mutableStateOf(prefs.get(PREF_ACTIVE_BOTTOM_WINDOW, "")) }
+    var hiddenToolWindowsSnapshot by remember { mutableStateOf<Map<ToolWindowAnchor, String>?>(null) }
+    var draggingToolWindowId by remember { mutableStateOf<String?>(null) }
+    var dragTargetAnchor by remember { mutableStateOf<ToolWindowAnchor?>(null) }
+    var appWindowBounds by remember { mutableStateOf<Rect?>(null) }
 
     var windowAnchors by remember {
-        val saved = prefs.get(PREF_WINDOW_ANCHORS, "workspace:LEFT;filters:LEFT;structure:RIGHT;inspector:RIGHT")
-        val map = saved.split(";").associate {
-            val (id, anchor) = it.split(":")
-            id to ToolWindowAnchor.valueOf(anchor)
-        }.toMutableMap()
+        val defaults = mapOf(
+            "workspace" to ToolWindowAnchor.LEFT,
+            "filters" to ToolWindowAnchor.LEFT,
+            "structure" to ToolWindowAnchor.RIGHT,
+            "inspector" to ToolWindowAnchor.RIGHT
+        )
+        val saved = prefs.get(PREF_WINDOW_ANCHORS, "")
+        val parsed = saved.split(";").mapNotNull { part ->
+            val idAndAnchor = part.split(":")
+            if (idAndAnchor.size != 2) return@mapNotNull null
+            val id = idAndAnchor[0]
+            val anchor = runCatching { ToolWindowAnchor.valueOf(idAndAnchor[1]) }.getOrNull() ?: return@mapNotNull null
+            id to anchor
+        }.toMap()
+        val map = defaults.toMutableMap().apply { putAll(parsed) }
         mutableStateOf(map)
     }
 
@@ -207,35 +249,99 @@ fun App() {
         prefs.put(PREF_WORKSPACE_ITEMS, items.joinToString(";") { it.serialize() })
     }
 
-    fun toggleToolWindow(id: String, side: ToolWindowAnchor) {
-        if (side == ToolWindowAnchor.LEFT) {
-            activeLeftToolWindowId = if (activeLeftToolWindowId == id) "" else id
-            prefs.put(PREF_ACTIVE_LEFT_WINDOW, activeLeftToolWindowId)
-        } else {
-            activeRightToolWindowId = if (activeRightToolWindowId == id) "" else id
-            prefs.put(PREF_ACTIVE_RIGHT_WINDOW, activeRightToolWindowId)
+    fun getActiveWindow(anchor: ToolWindowAnchor): String {
+        return when (anchor) {
+            ToolWindowAnchor.LEFT -> activeLeftToolWindowId
+            ToolWindowAnchor.RIGHT -> activeRightToolWindowId
+            ToolWindowAnchor.TOP -> activeTopToolWindowId
+            ToolWindowAnchor.BOTTOM -> activeBottomToolWindowId
         }
     }
 
-    fun moveToolWindow(id: String) {
+    fun setActiveWindow(anchor: ToolWindowAnchor, id: String) {
+        when (anchor) {
+            ToolWindowAnchor.LEFT -> {
+                activeLeftToolWindowId = id
+                prefs.put(PREF_ACTIVE_LEFT_WINDOW, id)
+            }
+            ToolWindowAnchor.RIGHT -> {
+                activeRightToolWindowId = id
+                prefs.put(PREF_ACTIVE_RIGHT_WINDOW, id)
+            }
+            ToolWindowAnchor.TOP -> {
+                activeTopToolWindowId = id
+                prefs.put(PREF_ACTIVE_TOP_WINDOW, id)
+            }
+            ToolWindowAnchor.BOTTOM -> {
+                activeBottomToolWindowId = id
+                prefs.put(PREF_ACTIVE_BOTTOM_WINDOW, id)
+            }
+        }
+    }
+
+    fun toggleToolWindow(id: String, anchor: ToolWindowAnchor) {
+        val current = getActiveWindow(anchor)
+        setActiveWindow(anchor, if (current == id) "" else id)
+    }
+
+    fun activeWindowMap(): Map<ToolWindowAnchor, String> = mapOf(
+        ToolWindowAnchor.LEFT to activeLeftToolWindowId,
+        ToolWindowAnchor.RIGHT to activeRightToolWindowId,
+        ToolWindowAnchor.TOP to activeTopToolWindowId,
+        ToolWindowAnchor.BOTTOM to activeBottomToolWindowId
+    )
+
+    fun setAllToolWindowsHidden() {
+        setActiveWindow(ToolWindowAnchor.LEFT, "")
+        setActiveWindow(ToolWindowAnchor.RIGHT, "")
+        setActiveWindow(ToolWindowAnchor.TOP, "")
+        setActiveWindow(ToolWindowAnchor.BOTTOM, "")
+    }
+
+    fun toggleAllToolWindows() {
+        val current = activeWindowMap()
+        val hasAnyVisible = current.values.any { it.isNotEmpty() }
+
+        if (hasAnyVisible) {
+            hiddenToolWindowsSnapshot = current
+            setAllToolWindowsHidden()
+            return
+        }
+
+        val snapshot = hiddenToolWindowsSnapshot ?: return
+        ToolWindowAnchor.entries.forEach { anchor ->
+            val savedId = snapshot[anchor].orEmpty()
+            if (savedId.isNotEmpty() && windowAnchors[savedId] == anchor) {
+                setActiveWindow(anchor, savedId)
+            }
+        }
+    }
+
+    fun moveToolWindow(id: String, newAnchor: ToolWindowAnchor) {
         val currentAnchor = windowAnchors[id] ?: ToolWindowAnchor.LEFT
-        val newAnchor = if (currentAnchor == ToolWindowAnchor.LEFT) ToolWindowAnchor.RIGHT else ToolWindowAnchor.LEFT
-        
+        if (currentAnchor == newAnchor) return
+
         val newAnchors = windowAnchors.toMutableMap()
         newAnchors[id] = newAnchor
         windowAnchors = newAnchors
         prefs.put(PREF_WINDOW_ANCHORS, newAnchors.entries.joinToString(";") { "${it.key}:${it.value}" })
 
-        // Clear active states if they were pointing to this ID
-        if (currentAnchor == ToolWindowAnchor.LEFT && activeLeftToolWindowId == id) activeLeftToolWindowId = ""
-        if (currentAnchor == ToolWindowAnchor.RIGHT && activeRightToolWindowId == id) activeRightToolWindowId = ""
-        
-        // Auto-activate on new side
-        if (newAnchor == ToolWindowAnchor.LEFT) activeLeftToolWindowId = id
-        else activeRightToolWindowId = id
-        
-        prefs.put(PREF_ACTIVE_LEFT_WINDOW, activeLeftToolWindowId)
-        prefs.put(PREF_ACTIVE_RIGHT_WINDOW, activeRightToolWindowId)
+        if (getActiveWindow(currentAnchor) == id) {
+            setActiveWindow(currentAnchor, "")
+        }
+        setActiveWindow(newAnchor, id)
+    }
+
+    fun updateDragTarget(positionInWindow: Offset?) {
+        val bounds = appWindowBounds
+        val edgeSizePx = with(density) { 120.dp.toPx() }
+        dragTargetAnchor = if (positionInWindow == null || bounds == null) null else when {
+            positionInWindow.y <= bounds.top + edgeSizePx -> ToolWindowAnchor.TOP
+            positionInWindow.y >= bounds.bottom - edgeSizePx -> ToolWindowAnchor.BOTTOM
+            positionInWindow.x <= bounds.left + edgeSizePx -> ToolWindowAnchor.LEFT
+            positionInWindow.x >= bounds.right - edgeSizePx -> ToolWindowAnchor.RIGHT
+            else -> null
+        }
     }
 
     // Logic to load a specific table
@@ -267,30 +373,112 @@ fun App() {
         }
     }
 
-    MaterialTheme {
-        Column(Modifier.fillMaxSize()) {
+    @Composable
+    fun RenderToolWindowContent(toolWindowId: String) {
+        when (toolWindowId) {
+            "workspace" -> WorkspacePanel(
+                workspaceItems = workspaceItems,
+                selectedTablePath = selectedTablePath,
+                onTableSelect = { tablePath ->
+                    if (selectedTablePath != null && graphModel != null) {
+                        val oldKey = "$selectedTablePath-rows_$showRows"
+                        sessionCache[oldKey]?.selectedNodeIds = selectedNodeIds
+                    }
+                    loadTable(tablePath)
+                },
+                onAddRoot = { path ->
+                    val file = File(path)
+                    if (file.exists() && file.isDirectory) {
+                        val newItem = if (isIcebergTable(file)) {
+                            WorkspaceItem.SingleTable(path, file.name)
+                        } else {
+                            WorkspaceItem.Warehouse(path, file.name, scanForTables(file))
+                        }
+                        saveWorkspace(workspaceItems + newItem)
+                    }
+                },
+                onRemoveRoot = { item ->
+                    saveWorkspace(workspaceItems.filter { it != item })
+                },
+                onMoveRoot = { item, delta ->
+                    val index = workspaceItems.indexOf(item)
+                    if (index != -1) {
+                        val newIndex = (index + delta).coerceIn(0, workspaceItems.size - 1)
+                        if (newIndex != index) {
+                            val newList = workspaceItems.toMutableList()
+                            newList.removeAt(index)
+                            newList.add(newIndex, item)
+                            saveWorkspace(newList)
+                        }
+                    }
+                }
+            )
+            "filters" -> FiltersPanel(
+                showRows = showRows,
+                onShowRowsChange = {
+                    showRows = it
+                    prefs.putBoolean(PREF_SHOW_ROWS, it)
+                    if (selectedTablePath != null) loadTable(selectedTablePath!!, it)
+                },
+                showMetadata = showMetadata,
+                onShowMetadataChange = {
+                    showMetadata = it
+                    prefs.putBoolean(PREF_SHOW_METADATA, it)
+                },
+                showSnapshots = showSnapshots,
+                onShowSnapshotsChange = {
+                    showSnapshots = it
+                    prefs.putBoolean(PREF_SHOW_SNAPSHOTS, it)
+                },
+                showManifests = showManifests,
+                onShowManifestsChange = {
+                    showManifests = it
+                    prefs.putBoolean(PREF_SHOW_MANIFESTS, it)
+                },
+                showDataFiles = showDataFiles,
+                onShowDataFilesChange = {
+                    showDataFiles = it
+                    prefs.putBoolean(PREF_SHOW_DATA_FILES, it)
+                }
+            )
+            "structure" -> {
+                if (graphModel != null) {
+                    NavigationTree(
+                        graph = graphModel!!,
+                        selectedNodeIds = selectedNodeIds,
+                        onNodeSelect = { selectedNodeIds = setOf(it.id) }
+                    )
+                } else {
+                    Text("No graph loaded.", fontSize = 12.sp, color = Color.Gray, modifier = Modifier.padding(8.dp))
+                }
+            }
+            "inspector" -> NodeDetailsContent(graphModel, selectedNodeIds)
+        }
+    }
 
-            // Top Toolbar for UI Controls
+    val leftWindows = toolWindows.filter { windowAnchors[it.id] == ToolWindowAnchor.LEFT }.map { it.id to it.icon }
+    val rightWindows = toolWindows.filter { windowAnchors[it.id] == ToolWindowAnchor.RIGHT }.map { it.id to it.icon }
+    val topWindows = toolWindows.filter { windowAnchors[it.id] == ToolWindowAnchor.TOP }.map { it.id to it.icon }
+    val bottomWindows = toolWindows.filter { windowAnchors[it.id] == ToolWindowAnchor.BOTTOM }.map { it.id to it.icon }
+
+    fun toolWindowTitle(id: String): String = toolWindows.firstOrNull { it.id == id }?.title ?: id
+
+    MaterialTheme {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .onGloballyPositioned { coords -> appWindowBounds = coords.boundsInWindow() }
+        ) {
+            Column(Modifier.fillMaxSize()) {
+
             Row(
                 Modifier
                     .fillMaxWidth()
                     .height(40.dp)
                     .background(Color(0xFFEEEEEE))
-                    .padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically
+                    .padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                ToolbarIconButton(
-                    icon = Icons.AutoMirrored.Filled.ViewSidebar,
-                    tooltip = if (activeLeftToolWindowId.isNotEmpty()) "Hide Left Tool Windows" else "Show Left Tool Windows",
-                    onClick = {
-                        activeLeftToolWindowId = if (activeLeftToolWindowId.isNotEmpty()) "" else toolWindows.firstOrNull { windowAnchors[it.id] == ToolWindowAnchor.LEFT }?.id ?: ""
-                        prefs.put(PREF_ACTIVE_LEFT_WINDOW, activeLeftToolWindowId)
-                    },
-                    isSelected = activeLeftToolWindowId.isNotEmpty()
-                )
-
-                Spacer(Modifier.width(8.dp))
-
-                // Selection Mode Toggle Group
                 ToolbarGroup {
                     ToolbarIconButton(
                         icon = Icons.Default.AdsClick,
@@ -317,7 +505,6 @@ fun App() {
 
                 Spacer(Modifier.width(16.dp))
 
-                // Zoom Controls Group
                 ToolbarGroup {
                     ToolbarIconButton(
                         icon = Icons.Default.ZoomIn,
@@ -358,129 +545,98 @@ fun App() {
                 }
 
                 Spacer(Modifier.weight(1f))
-
-                ToolbarIconButton(
-                    icon = Icons.AutoMirrored.Filled.ViewSidebar,
-                    tooltip = if (activeRightToolWindowId.isNotEmpty()) "Hide Right Tool Windows" else "Show Right Tool Windows",
-                    onClick = {
-                        activeRightToolWindowId = if (activeRightToolWindowId.isNotEmpty()) "" else toolWindows.firstOrNull { windowAnchors[it.id] == ToolWindowAnchor.RIGHT }?.id ?: ""
-                        prefs.put(PREF_ACTIVE_RIGHT_WINDOW, activeRightToolWindowId)
-                    },
-                    isSelected = activeRightToolWindowId.isNotEmpty(),
-                    modifier = Modifier.graphicsLayer { scaleX = -1f }
-                )
             }
             HorizontalDivider()
 
-            Row(Modifier.weight(1f)) {
-                // Left Tool Window Bar
+            if (topWindows.isNotEmpty()) {
                 ToolWindowBar(
-                    anchor = ToolWindowAnchor.LEFT,
-                    windows = toolWindows.filter { windowAnchors[it.id] == ToolWindowAnchor.LEFT }.map { it.id to it.icon },
-                    activeWindowId = activeLeftToolWindowId,
-                    onWindowClick = { id ->
-                        activeLeftToolWindowId = if (activeLeftToolWindowId == id) "" else id
-                        prefs.put(PREF_ACTIVE_LEFT_WINDOW, activeLeftToolWindowId)
-                    }
+                    anchor = ToolWindowAnchor.TOP,
+                    windows = topWindows,
+                    activeWindowId = activeTopToolWindowId,
+                    onWindowClick = { id -> toggleToolWindow(id, ToolWindowAnchor.TOP) },
+                    isDropTarget = dragTargetAnchor == ToolWindowAnchor.TOP
                 )
+            }
+
+            if (activeTopToolWindowId.isNotEmpty()) {
+                val paneId = activeTopToolWindowId
+                Box(Modifier.height(topPaneHeight).fillMaxWidth()) {
+                    ToolWindowPane(
+                        title = toolWindowTitle(paneId),
+                        isBeingDragged = draggingToolWindowId == paneId,
+                        onClose = { setActiveWindow(ToolWindowAnchor.TOP, "") },
+                        onDragStart = { position ->
+                            draggingToolWindowId = paneId
+                            updateDragTarget(position)
+                        },
+                        onDragMove = { position -> updateDragTarget(position) },
+                        onDragEnd = {
+                            val draggedId = draggingToolWindowId
+                            val target = dragTargetAnchor
+                            if (draggedId != null && target != null) moveToolWindow(draggedId, target)
+                            draggingToolWindowId = null
+                            updateDragTarget(null)
+                        },
+                        onDragCancel = {
+                            draggingToolWindowId = null
+                            updateDragTarget(null)
+                        }
+                    ) {
+                        RenderToolWindowContent(paneId)
+                    }
+                }
+                DraggableHorizontalDivider(onDrag = { delta ->
+                    val deltaDp = with(density) { delta.toDp() }
+                    topPaneHeight = (topPaneHeight + deltaDp).coerceIn(120.dp, 500.dp)
+                    prefs.putFloat(PREF_TOP_PANE_HEIGHT, topPaneHeight.value)
+                })
+            }
+
+            Row(Modifier.weight(1f)) {
+                if (leftWindows.isNotEmpty()) {
+                    ToolWindowBar(
+                        anchor = ToolWindowAnchor.LEFT,
+                        windows = leftWindows,
+                        activeWindowId = activeLeftToolWindowId,
+                        onWindowClick = { id -> toggleToolWindow(id, ToolWindowAnchor.LEFT) },
+                        isDropTarget = dragTargetAnchor == ToolWindowAnchor.LEFT
+                    )
+                }
 
                 if (activeLeftToolWindowId.isNotEmpty()) {
+                    val paneId = activeLeftToolWindowId
                     Box(Modifier.width(leftPaneWidth).fillMaxHeight()) {
-                        val onClose = { activeLeftToolWindowId = "" }
-                        val onMove = { moveToolWindow(activeLeftToolWindowId) }
-                        when (activeLeftToolWindowId) {
-                            "workspace" -> ToolWindowPane("Workspace", onClose, onMove) {
-                                WorkspacePanel(
-                                    workspaceItems = workspaceItems,
-                                    selectedTablePath = selectedTablePath,
-                                    onTableSelect = { tablePath ->
-                                        if (selectedTablePath != null && graphModel != null) {
-                                            val oldKey = "$selectedTablePath-rows_$showRows"
-                                            sessionCache[oldKey]?.selectedNodeIds = selectedNodeIds
-                                        }
-                                        loadTable(tablePath)
-                                    },
-                                    onAddRoot = { path ->
-                                        val file = File(path)
-                                        if (file.exists() && file.isDirectory) {
-                                            val newItem = if (isIcebergTable(file)) {
-                                                WorkspaceItem.SingleTable(path, file.name)
-                                            } else {
-                                                WorkspaceItem.Warehouse(path, file.name, scanForTables(file))
-                                            }
-                                            saveWorkspace(workspaceItems + newItem)
-                                        }
-                                    },
-                                    onRemoveRoot = { item ->
-                                        saveWorkspace(workspaceItems.filter { it != item })
-                                    },
-                                    onMoveRoot = { item, delta ->
-                                        val index = workspaceItems.indexOf(item)
-                                        if (index != -1) {
-                                            val newIndex = (index + delta).coerceIn(0, workspaceItems.size - 1)
-                                            if (newIndex != index) {
-                                                val newList = workspaceItems.toMutableList()
-                                                newList.removeAt(index)
-                                                newList.add(newIndex, item)
-                                                saveWorkspace(newList)
-                                            }
-                                        }
-                                    }
-                                )
+                        ToolWindowPane(
+                            title = toolWindowTitle(paneId),
+                            isBeingDragged = draggingToolWindowId == paneId,
+                            onClose = { setActiveWindow(ToolWindowAnchor.LEFT, "") },
+                            onDragStart = { position ->
+                                draggingToolWindowId = paneId
+                                updateDragTarget(position)
+                            },
+                            onDragMove = { position -> updateDragTarget(position) },
+                            onDragEnd = {
+                                val draggedId = draggingToolWindowId
+                                val target = dragTargetAnchor
+                                if (draggedId != null && target != null) moveToolWindow(draggedId, target)
+                                draggingToolWindowId = null
+                                updateDragTarget(null)
+                            },
+                            onDragCancel = {
+                                draggingToolWindowId = null
+                                updateDragTarget(null)
                             }
-                            "filters"   -> ToolWindowPane("Filters", onClose, onMove) {
-                                FiltersPanel(
-                                    showRows = showRows,
-                                    onShowRowsChange = {
-                                        showRows = it
-                                        prefs.putBoolean(PREF_SHOW_ROWS, it)
-                                        if (selectedTablePath != null) loadTable(selectedTablePath!!, it)
-                                    },
-                                    showMetadata = showMetadata,
-                                    onShowMetadataChange = {
-                                        showMetadata = it
-                                        prefs.putBoolean(PREF_SHOW_METADATA, it)
-                                    },
-                                    showSnapshots = showSnapshots,
-                                    onShowSnapshotsChange = {
-                                        showSnapshots = it
-                                        prefs.putBoolean(PREF_SHOW_SNAPSHOTS, it)
-                                    },
-                                    showManifests = showManifests,
-                                    onShowManifestsChange = {
-                                        showManifests = it
-                                        prefs.putBoolean(PREF_SHOW_MANIFESTS, it)
-                                    },
-                                    showDataFiles = showDataFiles,
-                                    onShowDataFilesChange = {
-                                        showDataFiles = it
-                                        prefs.putBoolean(PREF_SHOW_DATA_FILES, it)
-                                    }
-                                )
-                            }
-                            "structure" -> ToolWindowPane("Structure", onClose, onMove) {
-                                if (graphModel != null) {
-                                    NavigationTree(
-                                        graph = graphModel!!,
-                                        selectedNodeIds = selectedNodeIds,
-                                        onNodeSelect = { selectedNodeIds = setOf(it.id) })
-                                } else {
-                                    Text("No graph loaded.", fontSize = 12.sp, color = Color.Gray, modifier = Modifier.padding(8.dp))
-                                }
-                            }
-                            "inspector" -> ToolWindowPane("Inspector", onClose, onMove) {
-                                NodeDetailsContent(graphModel, selectedNodeIds)
-                            }
+                        ) {
+                            RenderToolWindowContent(paneId)
                         }
                     }
-                    DraggableDivider(onDrag = { delta ->
+                    DraggableVerticalDivider(onDrag = { delta ->
                         val deltaDp = with(density) { delta.toDp() }
                         leftPaneWidth = (leftPaneWidth + deltaDp).coerceIn(150.dp, 500.dp)
                         prefs.putFloat(PREF_LEFT_PANE_WIDTH, leftPaneWidth.value)
                     })
                 }
 
-                // 2. Main Canvas
                 Box(Modifier.weight(1f).fillMaxHeight().clipToBounds()) {
                     if (graphModel != null) {
                         val filteredNodes = graphModel!!.nodes.filter { node ->
@@ -488,8 +644,8 @@ fun App() {
                                 is GraphNode.MetadataNode -> showMetadata
                                 is GraphNode.SnapshotNode -> showSnapshots
                                 is GraphNode.ManifestNode -> showManifests
-                                is GraphNode.FileNode     -> showDataFiles
-                                is GraphNode.RowNode      -> showDataFiles && showRows
+                                is GraphNode.FileNode -> showDataFiles
+                                is GraphNode.RowNode -> showDataFiles && showRows
                             }
                         }
                         val filteredNodeIds = filteredNodes.map { it.id }.toSet()
@@ -507,7 +663,8 @@ fun App() {
                                 zoom = it
                                 prefs.putFloat(PREF_ZOOM, it)
                             },
-                            onSelectionChange = { selectedNodeIds = it }
+                            onSelectionChange = { selectedNodeIds = it },
+                            onEmptyAreaDoubleClick = { toggleAllToolWindows() }
                         )
                     } else if (workspaceItems.isNotEmpty()) {
                         Text(
@@ -527,83 +684,129 @@ fun App() {
                 }
 
                 if (activeRightToolWindowId.isNotEmpty()) {
-                    DraggableDivider(onDrag = { delta ->
+                    DraggableVerticalDivider(onDrag = { delta ->
                         val deltaDp = with(density) { delta.toDp() }
                         rightPaneWidth = (rightPaneWidth - deltaDp).coerceIn(200.dp, 600.dp)
                         prefs.putFloat(PREF_RIGHT_PANE_WIDTH, rightPaneWidth.value)
                     })
+
+                    val paneId = activeRightToolWindowId
                     Box(Modifier.width(rightPaneWidth).fillMaxHeight()) {
-                        val onClose = { activeRightToolWindowId = "" }
-                        val onMove = { moveToolWindow(activeRightToolWindowId) }
-                        when (activeRightToolWindowId) {
-                            "workspace" -> ToolWindowPane("Workspace", onClose, onMove) {
-                                WorkspacePanel(
-                                    workspaceItems = workspaceItems,
-                                    selectedTablePath = selectedTablePath,
-                                    onTableSelect = { loadTable(it) },
-                                    onAddRoot = { path ->
-                                        val file = File(path)
-                                        if (file.exists() && file.isDirectory) {
-                                            val newItem = if (isIcebergTable(file)) {
-                                                WorkspaceItem.SingleTable(path, file.name)
-                                            } else {
-                                                WorkspaceItem.Warehouse(path, file.name, scanForTables(file))
-                                            }
-                                            saveWorkspace(workspaceItems + newItem)
-                                        }
-                                    },
-                                    onRemoveRoot = { item ->
-                                        saveWorkspace(workspaceItems.filter { it != item })
-                                    },
-                                    onMoveRoot = { item, delta ->
-                                        val index = workspaceItems.indexOf(item)
-                                        if (index != -1) {
-                                            val newIndex = (index + delta).coerceIn(0, workspaceItems.size - 1)
-                                            if (newIndex != index) {
-                                                val newList = workspaceItems.toMutableList()
-                                                newList.removeAt(index)
-                                                newList.add(newIndex, item)
-                                                saveWorkspace(newList)
-                                            }
-                                        }
-                                    }
-                                )
+                        ToolWindowPane(
+                            title = toolWindowTitle(paneId),
+                            isBeingDragged = draggingToolWindowId == paneId,
+                            onClose = { setActiveWindow(ToolWindowAnchor.RIGHT, "") },
+                            onDragStart = { position ->
+                                draggingToolWindowId = paneId
+                                updateDragTarget(position)
+                            },
+                            onDragMove = { position -> updateDragTarget(position) },
+                            onDragEnd = {
+                                val draggedId = draggingToolWindowId
+                                val target = dragTargetAnchor
+                                if (draggedId != null && target != null) moveToolWindow(draggedId, target)
+                                draggingToolWindowId = null
+                                updateDragTarget(null)
+                            },
+                            onDragCancel = {
+                                draggingToolWindowId = null
+                                updateDragTarget(null)
                             }
-                            "filters"   -> ToolWindowPane("Filters", onClose, onMove) {
-                                FiltersPanel(
-                                    showRows = showRows, onShowRowsChange = { showRows = it },
-                                    showMetadata = showMetadata, onShowMetadataChange = { showMetadata = it },
-                                    showSnapshots = showSnapshots, onShowSnapshotsChange = { showSnapshots = it },
-                                    showManifests = showManifests, onShowManifestsChange = { showManifests = it },
-                                    showDataFiles = showDataFiles, onShowDataFilesChange = { showDataFiles = it }
-                                )
-                            }
-                            "structure" -> ToolWindowPane("Structure", onClose, onMove) {
-                                if (graphModel != null) {
-                                    NavigationTree(
-                                        graph = graphModel!!,
-                                        selectedNodeIds = selectedNodeIds,
-                                        onNodeSelect = { selectedNodeIds = setOf(it.id) })
-                                } else {
-                                    Text("No graph loaded.", fontSize = 12.sp, color = Color.Gray, modifier = Modifier.padding(8.dp))
-                                }
-                            }
-                            "inspector" -> ToolWindowPane("Inspector", onClose, onMove) {
-                                NodeDetailsContent(graphModel, selectedNodeIds)
-                            }
+                        ) {
+                            RenderToolWindowContent(paneId)
                         }
                     }
                 }
 
-                // Right Tool Window Bar
-                ToolWindowBar(
-                    anchor = ToolWindowAnchor.RIGHT,
-                    windows = toolWindows.filter { windowAnchors[it.id] == ToolWindowAnchor.RIGHT }.map { it.id to it.icon },
-                    activeWindowId = activeRightToolWindowId,
-                    onWindowClick = { id ->
-                        activeRightToolWindowId = if (activeRightToolWindowId == id) "" else id
-                        prefs.put(PREF_ACTIVE_RIGHT_WINDOW, activeRightToolWindowId)
+                if (rightWindows.isNotEmpty()) {
+                    ToolWindowBar(
+                        anchor = ToolWindowAnchor.RIGHT,
+                        windows = rightWindows,
+                        activeWindowId = activeRightToolWindowId,
+                        onWindowClick = { id -> toggleToolWindow(id, ToolWindowAnchor.RIGHT) },
+                        isDropTarget = dragTargetAnchor == ToolWindowAnchor.RIGHT
+                    )
+                }
+            }
+
+            if (activeBottomToolWindowId.isNotEmpty()) {
+                DraggableHorizontalDivider(onDrag = { delta ->
+                    val deltaDp = with(density) { delta.toDp() }
+                    bottomPaneHeight = (bottomPaneHeight - deltaDp).coerceIn(120.dp, 500.dp)
+                    prefs.putFloat(PREF_BOTTOM_PANE_HEIGHT, bottomPaneHeight.value)
+                })
+                val paneId = activeBottomToolWindowId
+                Box(Modifier.height(bottomPaneHeight).fillMaxWidth()) {
+                    ToolWindowPane(
+                        title = toolWindowTitle(paneId),
+                        isBeingDragged = draggingToolWindowId == paneId,
+                        onClose = { setActiveWindow(ToolWindowAnchor.BOTTOM, "") },
+                        onDragStart = { position ->
+                            draggingToolWindowId = paneId
+                            updateDragTarget(position)
+                        },
+                        onDragMove = { position -> updateDragTarget(position) },
+                        onDragEnd = {
+                            val draggedId = draggingToolWindowId
+                            val target = dragTargetAnchor
+                            if (draggedId != null && target != null) moveToolWindow(draggedId, target)
+                            draggingToolWindowId = null
+                            updateDragTarget(null)
+                        },
+                        onDragCancel = {
+                            draggingToolWindowId = null
+                            updateDragTarget(null)
+                        }
+                    ) {
+                        RenderToolWindowContent(paneId)
                     }
+                }
+            }
+
+            if (bottomWindows.isNotEmpty()) {
+                ToolWindowBar(
+                    anchor = ToolWindowAnchor.BOTTOM,
+                    windows = bottomWindows,
+                    activeWindowId = activeBottomToolWindowId,
+                    onWindowClick = { id -> toggleToolWindow(id, ToolWindowAnchor.BOTTOM) },
+                    isDropTarget = dragTargetAnchor == ToolWindowAnchor.BOTTOM
+                )
+            }
+
+            }
+
+            if (draggingToolWindowId != null) {
+                val dropTargetSize = 120.dp
+                val baseColor = Color(0xFF90CAF9).copy(alpha = 0.12f)
+                val activeColor = Color(0xFF64B5F6).copy(alpha = 0.32f)
+
+                Box(
+                    Modifier
+                        .align(Alignment.TopCenter)
+                        .fillMaxWidth()
+                        .height(dropTargetSize)
+                        .background(if (dragTargetAnchor == ToolWindowAnchor.TOP) activeColor else baseColor)
+                )
+                Box(
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .height(dropTargetSize)
+                        .background(if (dragTargetAnchor == ToolWindowAnchor.BOTTOM) activeColor else baseColor)
+                )
+                Box(
+                    Modifier
+                        .align(Alignment.CenterStart)
+                        .fillMaxHeight()
+                        .width(dropTargetSize)
+                        .background(if (dragTargetAnchor == ToolWindowAnchor.LEFT) activeColor else baseColor)
+                )
+                Box(
+                    Modifier
+                        .align(Alignment.CenterEnd)
+                        .fillMaxHeight()
+                        .width(dropTargetSize)
+                        .background(if (dragTargetAnchor == ToolWindowAnchor.RIGHT) activeColor else baseColor)
                 )
             }
         }
