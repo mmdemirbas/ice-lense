@@ -31,6 +31,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import model.*
 import service.GraphLayoutService
 import java.awt.Cursor
@@ -189,6 +192,10 @@ fun App() {
     var graphModel by remember { mutableStateOf<GraphModel?>(null) }
     var selectedNodeIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
+    var workspaceExpandedPaths by remember { mutableStateOf(setOf<String>()) }
+    var workspaceSearchQuery by remember { mutableStateOf("") }
+    var isLoadingTable by remember { mutableStateOf(false) }
+    var loadRequestId by remember { mutableStateOf(0L) }
 
     var showRows by remember { mutableStateOf(prefs.getBoolean(PREF_SHOW_ROWS, true)) }
     var isSelectMode by remember { mutableStateOf(prefs.getBoolean(PREF_IS_SELECT_MODE, false)) }
@@ -347,29 +354,45 @@ fun App() {
     // Logic to load a specific table
     fun loadTable(tablePath: String, withRows: Boolean = showRows) {
         val cacheKey = "$tablePath-rows_$withRows"
+        selectedTablePath = tablePath
 
         if (sessionCache.containsKey(cacheKey)) {
             val session = sessionCache[cacheKey]!!
             graphModel = session.graph
-            selectedTablePath = tablePath
             selectedNodeIds = session.selectedNodeIds
             errorMsg = null
+            isLoadingTable = false
             return
         }
 
-        try {
-            val tableModel = UnifiedTableModel(Paths.get(tablePath))
-            val newGraph = GraphLayoutService.layoutGraph(tableModel, withRows)
+        isLoadingTable = true
+        errorMsg = null
+        val requestId = loadRequestId + 1
+        loadRequestId = requestId
 
-            sessionCache[cacheKey] = TableSession(tableModel, newGraph)
-            graphModel = newGraph
-            selectedTablePath = tablePath
-            selectedNodeIds = emptySet()
-            errorMsg = null
-        } catch (e: Exception) {
-            errorMsg = e.message
-            e.printStackTrace()
-            graphModel = null
+        coroutineScope.launch {
+            try {
+                val session = withContext(Dispatchers.Default) {
+                    val tableModel = UnifiedTableModel(Paths.get(tablePath))
+                    val newGraph = GraphLayoutService.layoutGraph(tableModel, withRows)
+                    TableSession(tableModel, newGraph)
+                }
+
+                if (requestId != loadRequestId) return@launch
+                sessionCache[cacheKey] = session
+                graphModel = session.graph
+                selectedNodeIds = emptySet()
+                errorMsg = null
+            } catch (e: Exception) {
+                if (requestId != loadRequestId) return@launch
+                errorMsg = e.message
+                e.printStackTrace()
+                graphModel = null
+            } finally {
+                if (requestId == loadRequestId) {
+                    isLoadingTable = false
+                }
+            }
         }
     }
 
@@ -379,6 +402,10 @@ fun App() {
             "workspace" -> WorkspacePanel(
                 workspaceItems = workspaceItems,
                 selectedTablePath = selectedTablePath,
+                expandedPaths = workspaceExpandedPaths,
+                onExpandedPathsChange = { workspaceExpandedPaths = it },
+                searchQuery = workspaceSearchQuery,
+                onSearchQueryChange = { workspaceSearchQuery = it },
                 onTableSelect = { tablePath ->
                     if (selectedTablePath != null && graphModel != null) {
                         val oldKey = "$selectedTablePath-rows_$showRows"
@@ -460,6 +487,24 @@ fun App() {
     val rightWindows = toolWindows.filter { windowAnchors[it.id] == ToolWindowAnchor.RIGHT }.map { it.id to it.icon }
     val topWindows = toolWindows.filter { windowAnchors[it.id] == ToolWindowAnchor.TOP }.map { it.id to it.icon }
     val bottomWindows = toolWindows.filter { windowAnchors[it.id] == ToolWindowAnchor.BOTTOM }.map { it.id to it.icon }
+    val filteredGraph = remember(graphModel, showMetadata, showSnapshots, showManifests, showDataFiles, showRows) {
+        graphModel?.let { currentGraph ->
+            val filteredNodes = currentGraph.nodes.filter { node ->
+                when (node) {
+                    is GraphNode.MetadataNode -> showMetadata
+                    is GraphNode.SnapshotNode -> showSnapshots
+                    is GraphNode.ManifestNode -> showManifests
+                    is GraphNode.FileNode -> showDataFiles
+                    is GraphNode.RowNode -> showDataFiles && showRows
+                }
+            }
+            val filteredNodeIds = filteredNodes.asSequence().map { it.id }.toHashSet()
+            val filteredEdges = currentGraph.edges.filter { edge ->
+                edge.fromId in filteredNodeIds && edge.toId in filteredNodeIds
+            }
+            currentGraph.copy(nodes = filteredNodes, edges = filteredEdges)
+        }
+    }
 
     fun toolWindowTitle(id: String): String = toolWindows.firstOrNull { it.id == id }?.title ?: id
 
@@ -638,22 +683,7 @@ fun App() {
                 }
 
                 Box(Modifier.weight(1f).fillMaxHeight().clipToBounds()) {
-                    if (graphModel != null) {
-                        val filteredNodes = graphModel!!.nodes.filter { node ->
-                            when (node) {
-                                is GraphNode.MetadataNode -> showMetadata
-                                is GraphNode.SnapshotNode -> showSnapshots
-                                is GraphNode.ManifestNode -> showManifests
-                                is GraphNode.FileNode -> showDataFiles
-                                is GraphNode.RowNode -> showDataFiles && showRows
-                            }
-                        }
-                        val filteredNodeIds = filteredNodes.map { it.id }.toSet()
-                        val filteredEdges = graphModel!!.edges.filter { edge ->
-                            edge.fromId in filteredNodeIds && edge.toId in filteredNodeIds
-                        }
-                        val filteredGraph = graphModel!!.copy(nodes = filteredNodes, edges = filteredEdges)
-
+                    if (filteredGraph != null) {
                         GraphCanvas(
                             graph = filteredGraph,
                             selectedNodeIds = selectedNodeIds,
@@ -666,12 +696,23 @@ fun App() {
                             onSelectionChange = { selectedNodeIds = it },
                             onEmptyAreaDoubleClick = { toggleAllToolWindows() }
                         )
-                    } else if (workspaceItems.isNotEmpty()) {
+                    } else if (!isLoadingTable && workspaceItems.isNotEmpty()) {
                         Text(
                             "Select a table from the sidebar to view its structure.",
                             color = Color.Gray,
                             modifier = Modifier.align(Alignment.Center)
                         )
+                    }
+
+                    if (isLoadingTable) {
+                        Column(
+                            modifier = Modifier.align(Alignment.Center),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            CircularProgressIndicator()
+                            Spacer(Modifier.height(8.dp))
+                            Text("Loading table...")
+                        }
                     }
 
                     if (errorMsg != null) {

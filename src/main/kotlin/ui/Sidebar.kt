@@ -69,13 +69,15 @@ fun FiltersPanel(
 fun WorkspacePanel(
     workspaceItems: List<WorkspaceItem>,
     selectedTablePath: String?,
+    expandedPaths: Set<String>,
+    onExpandedPathsChange: (Set<String>) -> Unit,
+    searchQuery: String,
+    onSearchQueryChange: (String) -> Unit,
     onTableSelect: (String) -> Unit,
     onAddRoot: (String) -> Unit,
     onRemoveRoot: (WorkspaceItem) -> Unit,
     onMoveRoot: (WorkspaceItem, Int) -> Unit,
 ) {
-    var expandedPaths by remember { mutableStateOf(setOf<String>()) }
-    var searchQuery by remember { mutableStateOf("") }
     var draggingItemPath by remember { mutableStateOf<String?>(null) }
     var dragOffset by remember { mutableStateOf(0f) }
     var dragAccumulatedOffset by remember { mutableStateOf(0f) }
@@ -115,13 +117,13 @@ fun WorkspacePanel(
 
         OutlinedTextField(
             value = searchQuery,
-            onValueChange = { searchQuery = it },
+            onValueChange = onSearchQueryChange,
             modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
             placeholder = { Text("Search tables...", fontSize = 12.sp) },
             leadingIcon = { Icon(Icons.Default.Search, null, modifier = Modifier.size(16.dp)) },
             trailingIcon = if (searchQuery.isNotEmpty()) {
                 {
-                    IconButton(onClick = { searchQuery = "" }) {
+                    IconButton(onClick = { onSearchQueryChange("") }) {
                         Icon(Icons.Default.Clear, null, modifier = Modifier.size(16.dp))
                     }
                 }
@@ -164,11 +166,11 @@ fun WorkspacePanel(
                             isSelected = isSelected,
                             isExpanded = effectivelyExpanded,
                             onToggleExpand = {
-                                expandedPaths = if (expandedPaths.contains(item.path)) {
+                                onExpandedPathsChange(if (expandedPaths.contains(item.path)) {
                                     expandedPaths - item.path
                                 } else {
                                     expandedPaths + item.path
-                                }
+                                })
                             },
                             onSelect = {
                                 if (item is WorkspaceItem.SingleTable) {

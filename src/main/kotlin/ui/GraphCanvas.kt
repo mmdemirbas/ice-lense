@@ -18,8 +18,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
@@ -32,6 +32,8 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import model.GraphModel
 import model.GraphNode
+import model.GraphEdge
+import kotlin.math.max
 import kotlin.math.min
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -54,6 +56,54 @@ fun GraphCanvas(
     var hoveredNodeId by remember { mutableStateOf<String?>(null) }
     var marqueeStart by remember { mutableStateOf<Offset?>(null) }
     var marqueeEnd by remember { mutableStateOf<Offset?>(null) }
+
+    data class GraphExtents(val minX: Float, val minY: Float, val maxX: Float, val maxY: Float) {
+        val width: Float get() = (maxX - minX).coerceAtLeast(1f)
+        val height: Float get() = (maxY - minY).coerceAtLeast(1f)
+    }
+
+    val extents by remember {
+        derivedStateOf {
+            if (graph.nodes.isEmpty()) {
+                GraphExtents(0f, 0f, max(1f, graph.width.toFloat()), max(1f, graph.height.toFloat()))
+            } else {
+                val minX = graph.nodes.minOf { it.x.toFloat() }
+                val minY = graph.nodes.minOf { it.y.toFloat() }
+                val maxX = graph.nodes.maxOf { (it.x + it.width).toFloat() }
+                val maxY = graph.nodes.maxOf { (it.y + it.height).toFloat() }
+                GraphExtents(minX, minY, maxX, maxY)
+            }
+        }
+    }
+
+    val nodeById = remember(graph.nodes) { graph.nodes.associateBy { it.id } }
+    val selectedNodes = remember(selectedNodeIds, graph.nodes) {
+        graph.nodes.filter { it.id in selectedNodeIds }
+    }
+
+    fun DrawScope.drawEdge(edge: GraphEdge, source: GraphNode, target: GraphNode, color: Color, strokeWidth: Float) {
+        if (edge.isSibling) {
+            val startX = (source.x + source.width / 2).toFloat()
+            val startY = (source.y + source.height).toFloat()
+            val endX = (target.x + target.width / 2).toFloat()
+            val endY = target.y.toFloat()
+            val midY = startY + (endY - startY) / 2f
+
+            drawLine(color, Offset(startX, startY), Offset(startX, midY), strokeWidth = strokeWidth)
+            drawLine(color, Offset(startX, midY), Offset(endX, midY), strokeWidth = strokeWidth)
+            drawLine(color, Offset(endX, midY), Offset(endX, endY), strokeWidth = strokeWidth)
+        } else {
+            val startX = (source.x + source.width).toFloat()
+            val startY = (source.y + source.height / 2).toFloat()
+            val endX = target.x.toFloat()
+            val endY = (target.y + target.height / 2).toFloat()
+            val midX = startX + (endX - startX) / 2f
+
+            drawLine(color, Offset(startX, startY), Offset(midX, startY), strokeWidth = strokeWidth)
+            drawLine(color, Offset(midX, startY), Offset(midX, endY), strokeWidth = strokeWidth)
+            drawLine(color, Offset(midX, endY), Offset(endX, endY), strokeWidth = strokeWidth)
+        }
+    }
 
     BoxWithConstraints(
         modifier = Modifier
@@ -173,6 +223,47 @@ fun GraphCanvas(
             }) {
         val viewportWidth = constraints.maxWidth.toFloat()
         val viewportHeight = constraints.maxHeight.toFloat()
+        val boundsPadding = 100f
+
+        val logicalLeft = -offsetAnim.value.x / localZoom
+        val logicalTop = -offsetAnim.value.y / localZoom
+        val logicalRight = logicalLeft + viewportWidth / localZoom
+        val logicalBottom = logicalTop + viewportHeight / localZoom
+        val cullMargin = 400f
+
+        val visibleNodes = graph.nodes.filter { node ->
+            val nodeLeft = node.x.toFloat()
+            val nodeTop = node.y.toFloat()
+            val nodeRight = (node.x + node.width).toFloat()
+            val nodeBottom = (node.y + node.height).toFloat()
+            nodeRight >= logicalLeft - cullMargin &&
+                nodeLeft <= logicalRight + cullMargin &&
+                nodeBottom >= logicalTop - cullMargin &&
+                nodeTop <= logicalBottom + cullMargin
+        }
+        val visibleNodeIds = visibleNodes.asSequence().map { it.id }.toHashSet()
+        val visibleEdges = graph.edges.filter { edge ->
+            edge.fromId in visibleNodeIds || edge.toId in visibleNodeIds
+        }
+
+        fun clampOffset(rawOffset: Offset, zoomValue: Float): Offset {
+            val minOffsetX = viewportWidth - (extents.maxX + boundsPadding) * zoomValue
+            val maxOffsetX = -(extents.minX - boundsPadding) * zoomValue
+            val minOffsetY = viewportHeight - (extents.maxY + boundsPadding) * zoomValue
+            val maxOffsetY = -(extents.minY - boundsPadding) * zoomValue
+
+            val clampedX = if (minOffsetX <= maxOffsetX) {
+                rawOffset.x.coerceIn(minOffsetX, maxOffsetX)
+            } else {
+                (minOffsetX + maxOffsetX) / 2f
+            }
+            val clampedY = if (minOffsetY <= maxOffsetY) {
+                rawOffset.y.coerceIn(minOffsetY, maxOffsetY)
+            } else {
+                (minOffsetY + maxOffsetY) / 2f
+            }
+            return Offset(clampedX, clampedY)
+        }
 
         // Sync local state when external zoom changes (e.g. from buttons)
         LaunchedEffect(zoom) {
@@ -184,7 +275,7 @@ fun GraphCanvas(
                 val layoutOffset = offsetAnim.value + (viewportCenter - offsetAnim.value) * (1 - newZoom / oldZoom)
 
                 localZoom = newZoom
-                offsetAnim.snapTo(layoutOffset)
+                offsetAnim.snapTo(clampOffset(layoutOffset, newZoom))
             }
         }
 
@@ -216,7 +307,7 @@ fun GraphCanvas(
                         val targetX = (viewportWidth / 2f - nodeCenterX) * currentZoom
                         val targetY = (viewportHeight / 2f - nodeCenterY) * currentZoom
 
-                        offsetAnim.animateTo(Offset(targetX, targetY))
+                        offsetAnim.animateTo(clampOffset(Offset(targetX, targetY), currentZoom))
                     }
                 }
             }
@@ -238,59 +329,22 @@ fun GraphCanvas(
             }) {
                 val activeNodeIds = if (hoveredNodeId != null) setOf(hoveredNodeId!!) else selectedNodeIds
 
-                val normalEdges = mutableListOf<Pair<Path, Color>>()
-                val highlightedEdges = mutableListOf<Pair<Path, Color>>()
-
-                graph.edges.forEach { edge ->
-                    val source = graph.nodes.find { it.id == edge.fromId }
-                    val target = graph.nodes.find { it.id == edge.toId }
+                visibleEdges.forEach { edge ->
+                    val source = nodeById[edge.fromId]
+                    val target = nodeById[edge.toId]
 
                     if (source != null && target != null) {
-                        val path = Path()
                         val edgeColor = getGraphNodeBorderColor(source)
-
-                        if (edge.isSibling) {
-                            val startX = (source.x + source.width / 2).toFloat()
-                            val startY = (source.y + source.height).toFloat()
-                            val endX = (target.x + target.width / 2).toFloat()
-                            val endY = target.y.toFloat()
-                            val midY = startY + (endY - startY) / 2f
-
-                            path.moveTo(startX, startY)
-                            path.lineTo(startX, midY)
-                            path.lineTo(endX, midY)
-                            path.lineTo(endX, endY)
-                        } else {
-                            val startX = (source.x + source.width).toFloat()
-                            val startY = (source.y + source.height / 2).toFloat()
-                            val endX = target.x.toFloat()
-                            val endY = (target.y + target.height / 2).toFloat()
-                            val midX = startX + (endX - startX) / 2f
-
-                            path.moveTo(startX, startY)
-                            path.lineTo(midX, startY)
-                            path.lineTo(midX, endY)
-                            path.lineTo(endX, endY)
-                        }
-
                         if (activeNodeIds.contains(edge.fromId) || activeNodeIds.contains(edge.toId)) {
-                            highlightedEdges.add(path to edgeColor)
+                            drawEdge(edge, source, target, edgeColor, strokeWidth = 6f)
                         } else {
-                            normalEdges.add(path to edgeColor)
+                            drawEdge(edge, source, target, edgeColor.copy(alpha = 0.7f), strokeWidth = 2f)
                         }
                     }
                 }
-
-                normalEdges.forEach { (path, color) ->
-                    drawPath(path, color.copy(alpha = 0.7f), style = Stroke(width = 2f))
-                }
-
-                highlightedEdges.forEach { (path, color) ->
-                    drawPath(path, color, style = Stroke(width = 6f))
-                }
             }
 
-            graph.nodes.forEach { node ->
+            visibleNodes.forEach { node ->
                 Box(modifier = Modifier.offset { IntOffset(node.x.toInt(), node.y.toInt()) }) {
                     TooltipArea(
                         tooltip = { NodeTooltip(node) },
@@ -315,16 +369,19 @@ fun GraphCanvas(
                                     }
                                 }
                                 .pointerInput(node.id + "_interaction") {
-                                    detectTapGestures(onTap = { onSelectionChange(setOf(node.id)) })
-                                }
-                                .pointerInput(node.id + "_drag") {
-                                    detectDragGestures { change, dragAmount ->
+                                    detectDragGestures(
+                                        onDragStart = {
+                                            if (!selectedNodeIds.contains(node.id)) {
+                                                onSelectionChange(setOf(node.id))
+                                            }
+                                        }
+                                    ) { change, dragAmount ->
                                         change.consume()
-                                        val dx = dragAmount.x
-                                        val dy = dragAmount.y
+                                        val dx = dragAmount.x / localZoom
+                                        val dy = dragAmount.y / localZoom
 
                                         if (selectedNodeIds.contains(node.id)) {
-                                            graph.nodes.filter { it.id in selectedNodeIds }.forEach { n ->
+                                            selectedNodes.forEach { n ->
                                                 n.x += dx
                                                 n.y += dy
                                             }
@@ -334,6 +391,9 @@ fun GraphCanvas(
                                             onSelectionChange(setOf(node.id))
                                         }
                                     }
+                                }
+                                .pointerInput(node.id + "_tap") {
+                                    detectTapGestures(onTap = { onSelectionChange(setOf(node.id)) })
                                 }
                                 // Removed redundant .clickable to avoid double selection triggers
                         ) {
@@ -382,28 +442,32 @@ fun GraphCanvas(
                 .pointerInput(Unit) {
                     detectDragGestures { change, dragAmount ->
                         change.consume()
-                        val mapScale =
-                            min(240f / graph.width.toFloat(), 160f / graph.height.toFloat())
-                        coroutineScope.launch {
-                            offsetAnim.snapTo(
-                                offsetAnim.value - Offset(
-                                    dragAmount.x / mapScale * localZoom, dragAmount.y / mapScale * localZoom
-                                )
-                            )
-                        }
+                        val mapScale = min(240f / extents.width, 160f / extents.height)
+                        val mapOffsetX = (240f - (extents.width * mapScale)) / 2f
+                        val mapOffsetY = (160f - (extents.height * mapScale)) / 2f
+
+                        val px = change.position.x.coerceIn(mapOffsetX, mapOffsetX + extents.width * mapScale)
+                        val py = change.position.y.coerceIn(mapOffsetY, mapOffsetY + extents.height * mapScale)
+                        val graphX = extents.minX + ((px - mapOffsetX) / mapScale)
+                        val graphY = extents.minY + ((py - mapOffsetY) / mapScale)
+                        val targetOffset = Offset(
+                            viewportWidth / 2f - graphX * localZoom,
+                            viewportHeight / 2f - graphY * localZoom
+                        )
+
+                        coroutineScope.launch { offsetAnim.snapTo(clampOffset(targetOffset, localZoom)) }
                     }
                 }) {
             Canvas(modifier = Modifier.fillMaxSize().padding(4.dp)) {
-                val mapScale =
-                    min(size.width / graph.width.toFloat(), size.height / graph.height.toFloat())
-                val mapOffsetX = (size.width - (graph.width.toFloat() * mapScale)) / 2f
-                val mapOffsetY = (size.height - (graph.height.toFloat() * mapScale)) / 2f
+                val mapScale = min(size.width / extents.width, size.height / extents.height)
+                val mapOffsetX = (size.width - (extents.width * mapScale)) / 2f
+                val mapOffsetY = (size.height - (extents.height * mapScale)) / 2f
 
                 translate(mapOffsetX, mapOffsetY) {
                     graph.nodes.forEach { n ->
                         drawRect(
                             color = getGraphNodeColor(n),
-                            topLeft = Offset(n.x.toFloat() * mapScale, n.y.toFloat() * mapScale),
+                            topLeft = Offset((n.x.toFloat() - extents.minX) * mapScale, (n.y.toFloat() - extents.minY) * mapScale),
                             size = Size(n.width.toFloat() * mapScale, n.height.toFloat() * mapScale)
                         )
                     }
@@ -415,7 +479,7 @@ fun GraphCanvas(
 
                     drawRect(
                         color = Color.Red.copy(alpha = 0.4f),
-                        topLeft = Offset(vpX * mapScale, vpY * mapScale),
+                        topLeft = Offset((vpX - extents.minX) * mapScale, (vpY - extents.minY) * mapScale),
                         size = Size(vpW * mapScale, vpH * mapScale),
                         style = Stroke(width = 3f)
                     )
