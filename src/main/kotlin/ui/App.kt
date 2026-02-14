@@ -6,6 +6,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ViewSidebar
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -13,6 +16,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
@@ -20,6 +25,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import model.GraphModel
@@ -132,6 +138,61 @@ fun DetailRow(key: String, value: String, isHeader: Boolean = false) {
 }
 
 @Composable
+fun ToolbarGroup(content: @Composable RowScope.() -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(4.dp),
+        border = BorderStroke(1.dp, Color(0xFFCCCCCC)),
+        color = Color(0xFFF8F8F8)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.height(32.dp).padding(horizontal = 2.dp)
+        ) {
+            content()
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun ToolbarIconButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    tooltip: String,
+    onClick: () -> Unit,
+    isSelected: Boolean = false,
+    modifier: Modifier = Modifier
+) {
+    TooltipArea(
+        tooltip = {
+            Box(
+                modifier = Modifier
+                    .background(Color(0xEE333333), RoundedCornerShape(4.dp))
+                    .border(1.dp, Color.Gray, RoundedCornerShape(4.dp))
+                    .padding(8.dp)
+            ) {
+                Text(text = tooltip, color = Color.White, fontSize = 12.sp)
+            }
+        },
+        delayMillis = 500,
+        tooltipPlacement = TooltipPlacement.CursorPoint(
+            alignment = Alignment.BottomEnd,
+            offset = DpOffset(0.dp, 16.dp)
+        )
+    ) {
+        IconButton(
+            onClick = onClick,
+            modifier = modifier,
+            colors = if (isSelected) IconButtonDefaults.filledIconButtonColors(
+                containerColor = Color(0xFFE3F2FD),
+                contentColor = Color(0xFF1976D2)
+            ) else IconButtonDefaults.iconButtonColors()
+        ) {
+            Icon(icon, contentDescription = tooltip, modifier = Modifier.size(20.dp))
+        }
+    }
+}
+
+@Composable
 fun App() {
     var warehousePath by remember { mutableStateOf(prefs.get(PREF_WAREHOUSE_PATH, null)) }
     var availableTables by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -230,61 +291,99 @@ fun App() {
                     .fillMaxWidth()
                     .height(40.dp)
                     .background(Color(0xFFEEEEEE))
-                    .padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically
+                    .padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically
             ) {
-                TextButton(onClick = {
-                    isLeftPaneVisible = !isLeftPaneVisible
-                    prefs.putBoolean(PREF_LEFT_PANE_VISIBLE, isLeftPaneVisible)
-                }) {
-                    Text(if (isLeftPaneVisible) "◀ Hide Sidebar" else "Sidebar ▶", fontSize = 12.sp)
+                ToolbarIconButton(
+                    icon = Icons.AutoMirrored.Filled.ViewSidebar,
+                    tooltip = if (isLeftPaneVisible) "Hide Sidebar" else "Show Sidebar",
+                    onClick = {
+                        isLeftPaneVisible = !isLeftPaneVisible
+                        prefs.putBoolean(PREF_LEFT_PANE_VISIBLE, isLeftPaneVisible)
+                    },
+                    isSelected = isLeftPaneVisible
+                )
+
+                Spacer(Modifier.width(8.dp))
+
+                // Selection Mode Toggle Group
+                ToolbarGroup {
+                    ToolbarIconButton(
+                        icon = Icons.Default.AdsClick,
+                        tooltip = "Selection Mode",
+                        onClick = {
+                            isSelectMode = true
+                            prefs.putBoolean(PREF_IS_SELECT_MODE, isSelectMode)
+                        },
+                        isSelected = isSelectMode,
+                        modifier = Modifier.size(32.dp)
+                    )
+                    Box(Modifier.width(1.dp).height(16.dp).background(Color(0xFFCCCCCC)))
+                    ToolbarIconButton(
+                        icon = Icons.Default.PanTool,
+                        tooltip = "Pan Mode",
+                        onClick = {
+                            isSelectMode = false
+                            prefs.putBoolean(PREF_IS_SELECT_MODE, isSelectMode)
+                        },
+                        isSelected = !isSelectMode,
+                        modifier = Modifier.size(32.dp)
+                    )
                 }
 
                 Spacer(Modifier.width(16.dp))
 
-                // Selection Mode Toggle
-                Button(
-                    onClick = {
-                        isSelectMode = !isSelectMode
-                        prefs.putBoolean(PREF_IS_SELECT_MODE, isSelectMode)
-                    },
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isSelectMode) Color(0xFFE3F2FD) else Color.Transparent,
-                        contentColor = if (isSelectMode) Color(0xFF1976D2) else Color.DarkGray
+                // Zoom Controls Group
+                ToolbarGroup {
+                    ToolbarIconButton(
+                        icon = Icons.Default.ZoomIn,
+                        tooltip = "Zoom In",
+                        onClick = {
+                            zoom = (zoom * 1.2f).coerceAtMost(3f)
+                            prefs.putFloat(PREF_ZOOM, zoom)
+                        },
+                        modifier = Modifier.size(32.dp)
                     )
-                ) {
-                    Text(if (isSelectMode) "✅ Selection Mode" else "✋ Pan Mode", fontSize = 12.sp)
-                }
-
-                Spacer(Modifier.width(8.dp))
-
-                // Zoom Controls
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = {
-                        zoom = (zoom * 1.2f).coerceAtMost(3f)
-                        prefs.putFloat(PREF_ZOOM, zoom)
-                    }) { Text("➕", fontSize = 12.sp) }
-                    Text("${(zoom * 100).toInt()}%", fontSize = 11.sp, modifier = Modifier.width(40.dp))
-                    TextButton(onClick = {
-                        zoom = (zoom / 1.2f).coerceAtLeast(0.1f)
-                        prefs.putFloat(PREF_ZOOM, zoom)
-                    }) { Text("➖", fontSize = 12.sp) }
-                    TextButton(onClick = {
-                        zoom = 1f
-                        prefs.putFloat(PREF_ZOOM, zoom)
-                    }) { Text("Reset", fontSize = 11.sp) }
+                    Box(Modifier.width(1.dp).height(16.dp).background(Color(0xFFCCCCCC)))
+                    Text(
+                        "${(zoom * 100).toInt()}%",
+                        fontSize = 11.sp,
+                        modifier = Modifier.width(45.dp),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                    Box(Modifier.width(1.dp).height(16.dp).background(Color(0xFFCCCCCC)))
+                    ToolbarIconButton(
+                        icon = Icons.Default.ZoomOut,
+                        tooltip = "Zoom Out",
+                        onClick = {
+                            zoom = (zoom / 1.2f).coerceAtLeast(0.1f)
+                            prefs.putFloat(PREF_ZOOM, zoom)
+                        },
+                        modifier = Modifier.size(32.dp)
+                    )
+                    Box(Modifier.width(1.dp).height(16.dp).background(Color(0xFFCCCCCC)))
+                    ToolbarIconButton(
+                        icon = Icons.Default.RestartAlt,
+                        tooltip = "Reset Zoom",
+                        onClick = {
+                            zoom = 1f
+                            prefs.putFloat(PREF_ZOOM, zoom)
+                        },
+                        modifier = Modifier.size(32.dp)
+                    )
                 }
 
                 Spacer(Modifier.weight(1f))
-                TextButton(onClick = {
-                    isRightPaneVisible = !isRightPaneVisible
-                    prefs.putBoolean(PREF_RIGHT_PANE_VISIBLE, isRightPaneVisible)
-                }) {
-                    Text(
-                        if (isRightPaneVisible) "Hide Inspector ▶" else "◀ Inspector",
-                        fontSize = 12.sp
-                    )
-                }
+
+                ToolbarIconButton(
+                    icon = Icons.AutoMirrored.Filled.ViewSidebar,
+                    tooltip = if (isRightPaneVisible) "Hide Inspector" else "Show Inspector",
+                    onClick = {
+                        isRightPaneVisible = !isRightPaneVisible
+                        prefs.putBoolean(PREF_RIGHT_PANE_VISIBLE, isRightPaneVisible)
+                    },
+                    isSelected = isRightPaneVisible,
+                    modifier = Modifier.graphicsLayer { scaleX = -1f }
+                )
             }
             HorizontalDivider()
 

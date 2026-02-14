@@ -2,22 +2,52 @@ package ui
 
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowRight
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import model.GraphModel
 import model.GraphNode
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun TreeIconButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    tooltip: String,
+    onClick: () -> Unit
+) {
+    TooltipArea(
+        tooltip = {
+            Box(
+                modifier = Modifier
+                    .background(Color(0xEE333333), RoundedCornerShape(4.dp))
+                    .border(1.dp, Color.Gray, RoundedCornerShape(4.dp))
+                    .padding(8.dp)
+            ) {
+                Text(text = tooltip, color = Color.White, fontSize = 12.sp)
+            }
+        },
+        delayMillis = 500,
+        tooltipPlacement = TooltipPlacement.CursorPoint(
+            alignment = Alignment.BottomEnd,
+            offset = DpOffset(0.dp, 16.dp)
+        )
+    ) {
+        IconButton(onClick = onClick, modifier = Modifier.size(32.dp)) {
+            Icon(icon, contentDescription = tooltip, modifier = Modifier.size(18.dp), tint = Color.DarkGray)
+        }
+    }
+}
 
 @Composable
 fun NavigationTree(
@@ -57,21 +87,21 @@ fun NavigationTree(
 
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            TextButton(
-                onClick = { expandedNodeIds = graph.nodes.map { it.id }.toSet() },
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-            ) {
-                Text("Expand All", fontSize = 10.sp)
-            }
-            TextButton(
-                onClick = { expandedNodeIds = emptySet() },
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-            ) {
-                Text("Collapse All", fontSize = 10.sp)
-            }
+            Spacer(Modifier.weight(1f))
+            TreeIconButton(
+                icon = Icons.Default.UnfoldMore,
+                tooltip = "Expand All",
+                onClick = { expandedNodeIds = graph.nodes.map { it.id }.toSet() }
+            )
+            TreeIconButton(
+                icon = Icons.Default.UnfoldLess,
+                tooltip = "Collapse All",
+                onClick = { expandedNodeIds = emptySet() }
+            )
         }
 
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
@@ -115,7 +145,7 @@ fun NavigationTree(
                                 }) {
                                 if (hasChildren) {
                                     Icon(
-                                        imageVector = if (isExpanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowRight,
+                                        imageVector = if (isExpanded) Icons.Default.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
                                         contentDescription = "Toggle Expand",
                                         tint = Color.Gray,
                                         modifier = Modifier.fillMaxSize()
