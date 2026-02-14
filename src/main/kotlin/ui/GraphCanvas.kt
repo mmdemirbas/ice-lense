@@ -215,7 +215,7 @@ fun GraphCanvas(
                 }
 
                 highlightedEdges.forEach { (path, color) ->
-                    drawPath(path, color, style = Stroke(width = 4f))
+                    drawPath(path, color, style = Stroke(width = 6f))
                 }
             }
 
