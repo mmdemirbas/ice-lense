@@ -62,6 +62,28 @@ Useful toolbar actions:
 - **Reload from Filesystem**: reload table metadata/data
 - **Auto Reload**: keep checking metadata changes automatically
 
+## Release (GitHub)
+
+You do not need to commit binaries into Git history.
+Release assets are built by GitHub Actions and uploaded to GitHub Releases.
+
+### One command
+
+```bash
+./scripts/release.sh 1.0.1
+```
+
+Script steps:
+1. Check working tree is clean
+2. Check `build.gradle.kts` version matches input
+3. Run local build check
+4. Create git tag `v1.0.1`
+5. Push branch + tag
+6. Trigger release workflow to build:
+   - macOS `.dmg`
+   - Windows `.msi`
+   - Linux `.deb`
+
 ## 简体中文（简要）
 
 `Iceberg Lens` 是一个桌面工具，用来快速查看 Iceberg 表结构。

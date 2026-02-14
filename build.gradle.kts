@@ -48,5 +48,8 @@ compose.desktop {
                 bundleID = "com.iceberglens.desktop"
             }
         }
+        buildTypes.release.proguard {
+            configurationFiles.from(project.file("proguard-rules.pro"))
+        }
     }
 }
