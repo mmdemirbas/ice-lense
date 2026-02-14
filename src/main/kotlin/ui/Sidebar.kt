@@ -78,6 +78,10 @@ fun Sidebar(
                 Checkbox(checked = showDataFiles, onCheckedChange = onShowDataFilesChange, modifier = Modifier.size(32.dp))
                 Text("Data Files", fontSize = 11.sp)
             }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = showRows, onCheckedChange = onShowRowsChange, modifier = Modifier.size(32.dp))
+                Text("Data Rows", fontSize = 11.sp)
+            }
         }
 
         Spacer(modifier = Modifier.height(8.dp))

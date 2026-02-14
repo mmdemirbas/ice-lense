@@ -19,27 +19,41 @@ import model.GraphNode
 fun getGraphNodeColor(node: GraphNode): Color = when (node) {
     is GraphNode.MetadataNode -> Color(0xFFE1BEE7)
     is GraphNode.SnapshotNode -> Color(0xFFBBDEFB)
-    is GraphNode.ManifestNode -> Color(if (node.data.content == 1) 0xFFFFCDD2 else 0xFFC8E6C9)
+    is GraphNode.ManifestNode -> when (node.data.content) {
+        1    -> Color(0xFFFFCDD2)
+        else -> Color(0xFFC8E6C9)
+    }
+
     is GraphNode.FileNode     -> when (node.data.content ?: 0) {
         1    -> Color(0xFFFFCC80)
         2    -> Color(0xFFEF9A9A)
         else -> Color(0xFFE0F2F1)
     }
 
-    is GraphNode.RowNode      -> Color(if (node.isDelete) 0xFFFFCCBC else 0xFFFFF9C4)
+    is GraphNode.RowNode      -> when {
+        node.isDelete -> Color(0xFFFFCCBC)
+        else          -> Color(0xFFFFF9C4)
+    }
 }
 
 fun getGraphNodeBorderColor(node: GraphNode): Color = when (node) {
     is GraphNode.MetadataNode -> Color(0xFF8E24AA)
     is GraphNode.SnapshotNode -> Color(0xFF1976D2)
-    is GraphNode.ManifestNode -> Color(if (node.data.content == 1) 0xFFD32F2F else 0xFF388E3C)
+    is GraphNode.ManifestNode -> when (node.data.content) {
+        1    -> Color(0xFFD32F2F)
+        else -> Color(0xFF388E3C)
+    }
+
     is GraphNode.FileNode     -> when (node.data.content ?: 0) {
         1    -> Color(0xFFF57C00)
         2    -> Color(0xFFD32F2F)
         else -> Color(0xFF00897B)
     }
 
-    is GraphNode.RowNode      -> Color(if (node.isDelete) 0xFFE64A19 else 0xFFFBC02D)
+    is GraphNode.RowNode      -> when {
+        node.isDelete -> Color(0xFFE64A19)
+        else          -> Color(0xFFFBC02D)
+    }
 }
 
 @Composable

@@ -116,7 +116,7 @@ fun App() {
     var selectedNodeIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
 
-    var showRows by remember { mutableStateOf(prefs.getBoolean(PREF_SHOW_ROWS, false)) }
+    var showRows by remember { mutableStateOf(prefs.getBoolean(PREF_SHOW_ROWS, true)) }
     var isSelectMode by remember { mutableStateOf(false) }
     var zoom by remember { mutableStateOf(1f) }
 
@@ -296,7 +296,7 @@ fun App() {
                                 is GraphNode.SnapshotNode -> showSnapshots
                                 is GraphNode.ManifestNode -> showManifests
                                 is GraphNode.FileNode     -> showDataFiles
-                                is GraphNode.RowNode      -> showDataFiles // Rows are tied to files
+                                is GraphNode.RowNode      -> showDataFiles && showRows
                             }
                         }
                         val filteredNodeIds = filteredNodes.map { it.id }.toSet()
