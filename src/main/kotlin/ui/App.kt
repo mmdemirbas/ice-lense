@@ -231,6 +231,13 @@ fun App() {
     }
     var workspaceSearchQuery by remember { mutableStateOf("") }
     var warehouseTableStatuses by remember { mutableStateOf(initialWarehouseTableStatuses(workspaceItems)) }
+    var singleTableStatuses by remember {
+        mutableStateOf(
+            workspaceItems
+                .filterIsInstance<WorkspaceItem.SingleTable>()
+                .associate { it.path to WorkspaceTableStatus.EXISTING }
+        )
+    }
     var isLoadingTable by remember { mutableStateOf(false) }
     var loadRequestId by remember { mutableStateOf(0L) }
     var showRows by remember { mutableStateOf(true) }
@@ -298,16 +305,34 @@ fun App() {
                     }
                 }
             }
+        val singleTablePaths = deduplicated.filterIsInstance<WorkspaceItem.SingleTable>().map { it.path }.toSet()
+        singleTableStatuses = singleTableStatuses
+            .filterKeys { it in singleTablePaths }
+            .toMutableMap()
+            .apply {
+                deduplicated.filterIsInstance<WorkspaceItem.SingleTable>().forEach { table ->
+                    if (this[table.path] == null) this[table.path] = WorkspaceTableStatus.EXISTING
+                }
+            }
     }
 
     fun refreshWarehouseTables() {
-        val warehouses = workspaceItems.filterIsInstance<WorkspaceItem.Warehouse>()
-        if (warehouses.isEmpty()) return
-
         var hasWorkspaceUpdate = false
         var hasStatusUpdate = false
 
         val refreshedItems = workspaceItems.map { item ->
+            if (item is WorkspaceItem.SingleTable) {
+                val tableDir = File(item.path)
+                val existsNow = tableDir.exists() && tableDir.isDirectory && isIcebergTable(tableDir)
+                val previousStatus = singleTableStatuses[item.path] ?: WorkspaceTableStatus.EXISTING
+                val newStatus = when {
+                    !existsNow -> WorkspaceTableStatus.DELETED
+                    previousStatus == WorkspaceTableStatus.DELETED -> WorkspaceTableStatus.NEW
+                    else -> previousStatus
+                }
+                if (newStatus != previousStatus) hasStatusUpdate = true
+                return@map item
+            }
             if (item !is WorkspaceItem.Warehouse) return@map item
 
             val scannedTables = scanForTables(File(item.path))
@@ -339,6 +364,19 @@ fun App() {
         }
 
         if (hasStatusUpdate || hasWorkspaceUpdate) {
+            singleTableStatuses = refreshedItems
+                .filterIsInstance<WorkspaceItem.SingleTable>()
+                .associate { table ->
+                    val tableDir = File(table.path)
+                    val existsNow = tableDir.exists() && tableDir.isDirectory && isIcebergTable(tableDir)
+                    val previousStatus = singleTableStatuses[table.path] ?: WorkspaceTableStatus.EXISTING
+                    val status = when {
+                        !existsNow -> WorkspaceTableStatus.DELETED
+                        previousStatus == WorkspaceTableStatus.DELETED -> WorkspaceTableStatus.NEW
+                        else -> previousStatus
+                    }
+                    table.path to status
+                }
             warehouseTableStatuses = refreshedItems
                 .filterIsInstance<WorkspaceItem.Warehouse>()
                 .associate { warehouse ->
@@ -548,6 +586,7 @@ fun App() {
             "workspace" -> WorkspacePanel(
                 workspaceItems = workspaceItems,
                 warehouseTableStatuses = warehouseTableStatuses,
+                singleTableStatuses = singleTableStatuses,
                 selectedTablePath = selectedTablePath,
                 expandedPaths = workspaceExpandedPaths,
                 onExpandedPathsChange = { setWorkspaceExpandedPaths(it) },

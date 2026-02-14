@@ -71,6 +71,7 @@ fun CompactSearchField(
 fun WorkspacePanel(
     workspaceItems: List<WorkspaceItem>,
     warehouseTableStatuses: Map<String, Map<String, WorkspaceTableStatus>>,
+    singleTableStatuses: Map<String, WorkspaceTableStatus>,
     selectedTablePath: String?,
     expandedPaths: Set<String>,
     onExpandedPathsChange: (Set<String>) -> Unit,
@@ -176,6 +177,9 @@ fun WorkspacePanel(
                             item = item,
                             isSelected = isSelected,
                             isExpanded = effectivelyExpanded,
+                            status = if (item is WorkspaceItem.SingleTable) {
+                                singleTableStatuses[item.path] ?: WorkspaceTableStatus.EXISTING
+                            } else null,
                             onToggleExpand = {
                                 onExpandedPathsChange(if (expandedPaths.contains(item.path)) {
                                     expandedPaths - item.path
@@ -317,6 +321,7 @@ fun WorkspaceRootItem(
     item: WorkspaceItem,
     isSelected: Boolean,
     isExpanded: Boolean,
+    status: WorkspaceTableStatus? = null,
     onToggleExpand: () -> Unit,
     onSelect: () -> Unit,
     onRemove: () -> Unit,
@@ -326,8 +331,23 @@ fun WorkspaceRootItem(
         is WorkspaceItem.Warehouse   -> "warehouse: "
         is WorkspaceItem.SingleTable -> "table: "
     }
-    val bgColor = if (isSelected) Color(0xFFE3F2FD) else Color.Transparent
-    val textColor = if (isSelected) Color(0xFF1976D2) else Color.Black
+    val statusBgColor = when (status) {
+        WorkspaceTableStatus.NEW -> Color(0xFFFFF8E1)
+        WorkspaceTableStatus.DELETED -> Color(0xFFFFEBEE)
+        else -> Color.Transparent
+    }
+    val bgColor = if (isSelected) Color(0xFFE3F2FD) else statusBgColor
+    val textColor = when {
+        isSelected -> Color(0xFF1976D2)
+        status == WorkspaceTableStatus.NEW -> Color(0xFFF57F17)
+        status == WorkspaceTableStatus.DELETED -> Color(0xFFC62828)
+        else -> Color.Black
+    }
+    val suffix = when (status) {
+        WorkspaceTableStatus.NEW -> " (new)"
+        WorkspaceTableStatus.DELETED -> " (deleted)"
+        else -> ""
+    }
 
     Row(
         modifier = modifier
@@ -354,7 +374,7 @@ fun WorkspaceRootItem(
         }
 
         Text(
-            text = "$prefix${item.name}",
+            text = "$prefix${item.name}$suffix",
             fontSize = 13.sp,
             color = textColor,
             fontWeight = if (isSelected || item is WorkspaceItem.Warehouse) FontWeight.SemiBold else FontWeight.Normal,
