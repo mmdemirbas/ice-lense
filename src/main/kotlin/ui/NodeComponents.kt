@@ -232,8 +232,7 @@ fun SnapshotCard(node: GraphNode.SnapshotNode, isSelected: Boolean = false) {
         .border(BorderStroke(borderWidth, borderColor), RoundedCornerShape(8.dp))
         .padding(8.dp)) {
         Column {
-            Text("SNAPSHOT", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.DarkGray)
-            Text("ID: ${node.data.snapshotId}", fontWeight = FontWeight.Bold)
+            Text("SNAPSHOT ${node.simpleId}", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.DarkGray)
             Text("Op: ${node.data.summary["operation"] ?: "unknown"}", fontSize = 12.sp)
         }
     }

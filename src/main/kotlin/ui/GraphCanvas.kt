@@ -40,6 +40,7 @@ import kotlin.math.min
 @Composable
 fun GraphCanvas(
     graph: GraphModel,
+    graphRevision: Int = 0,
     selectedNodeIds: Set<String>,
     isSelectMode: Boolean,
     zoom: Float,
@@ -47,6 +48,10 @@ fun GraphCanvas(
     onSelectionChange: (Set<String>) -> Unit,
     onEmptyAreaDoubleClick: () -> Unit = {},
 ) {
+    // Consumed to ensure recomposition/reset-sensitive logic sees relayout events.
+    @Suppress("UNUSED_VARIABLE")
+    val _graphRevision = graphRevision
+
     val offsetAnim = remember { Animatable(Offset(100f, 100f), Offset.VectorConverter) }
     val coroutineScope = rememberCoroutineScope()
     
@@ -76,10 +81,8 @@ fun GraphCanvas(
         }
     }
 
-    val nodeById = remember(graph.nodes) { graph.nodes.associateBy { it.id } }
-    val selectedNodes = remember(selectedNodeIds, graph.nodes) {
-        graph.nodes.filter { it.id in selectedNodeIds }
-    }
+    val nodeById = graph.nodes.associateBy { it.id }
+    val selectedNodes = graph.nodes.filter { it.id in selectedNodeIds }
 
     fun DrawScope.drawEdge(edge: GraphEdge, source: GraphNode, target: GraphNode, color: Color, strokeWidth: Float) {
         if (edge.isSibling) {
@@ -243,7 +246,7 @@ fun GraphCanvas(
         }
         val visibleNodeIds = visibleNodes.asSequence().map { it.id }.toHashSet()
         val visibleEdges = graph.edges.filter { edge ->
-            edge.fromId in visibleNodeIds || edge.toId in visibleNodeIds
+            edge.fromId in visibleNodeIds && edge.toId in visibleNodeIds
         }
 
         fun clampOffset(rawOffset: Offset, zoomValue: Float): Offset {
@@ -263,6 +266,11 @@ fun GraphCanvas(
                 (minOffsetY + maxOffsetY) / 2f
             }
             return Offset(clampedX, clampedY)
+        }
+
+        // After a relayout, immediately re-clamp viewport so redraw is coherent without extra interaction.
+        LaunchedEffect(graphRevision) {
+            offsetAnim.snapTo(clampOffset(offsetAnim.value, localZoom))
         }
 
         // Sync local state when external zoom changes (e.g. from buttons)

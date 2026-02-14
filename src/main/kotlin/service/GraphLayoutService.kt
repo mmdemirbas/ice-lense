@@ -47,6 +47,7 @@ object GraphLayoutService {
         // Registry to map long Iceberg paths to simple IDs
         var nextFileId = 1
         val filePathToSimpleId = mutableMapOf<String, Int>()
+        var nextSnapshotSimpleId = 1
         var prevMetaId: String? = null
 
         tableModel.metadatas.forEach { metadata ->
@@ -69,8 +70,9 @@ object GraphLayoutService {
                 val snap = snapshot.metadata
                 val sId = "snap_${snap.snapshotId}"
                 if (!elkNodes.containsKey(sId)) {
+                    val simpleSnapshotId = nextSnapshotSimpleId++
                     elkNodes[sId] = createElkNode(root, sId, 220.0, 100.0)
-                    logicalNodes[sId] = GraphNode.SnapshotNode(sId, snap)
+                    logicalNodes[sId] = GraphNode.SnapshotNode(sId, snap, simpleSnapshotId)
                 }
 
                 val snapEdgeId = "e_snap_${mId}_to_$sId"

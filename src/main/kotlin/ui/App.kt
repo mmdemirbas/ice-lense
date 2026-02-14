@@ -11,6 +11,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.neverEqualPolicy
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -64,6 +65,7 @@ private const val PREF_SHOW_MANIFESTS = "show_manifests"
 private const val PREF_SHOW_DATA_FILES = "show_data_files"
 private const val PREF_IS_SELECT_MODE = "is_select_mode"
 private const val PREF_WORKSPACE_ITEMS = "workspace_items"
+private const val PREF_WORKSPACE_EXPANDED_PATHS = "workspace_expanded_paths"
 
 // Data class to hold cached table sessions
 data class TableSession(
@@ -189,10 +191,19 @@ fun App() {
     }
 
     var selectedTablePath by remember { mutableStateOf<String?>(null) }
-    var graphModel by remember { mutableStateOf<GraphModel?>(null) }
+    var graphModel by remember { mutableStateOf<GraphModel?>(null, neverEqualPolicy()) }
+    var graphRevision by remember { mutableIntStateOf(0) }
     var selectedNodeIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
-    var workspaceExpandedPaths by remember { mutableStateOf(setOf<String>()) }
+    var workspaceExpandedPaths by remember {
+        val saved = prefs.get(PREF_WORKSPACE_EXPANDED_PATHS, "")
+        val expanded = saved
+            .split(";")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .toSet()
+        mutableStateOf(expanded)
+    }
     var workspaceSearchQuery by remember { mutableStateOf("") }
     var isLoadingTable by remember { mutableStateOf(false) }
     var loadRequestId by remember { mutableStateOf(0L) }
@@ -251,9 +262,16 @@ fun App() {
         ToolWindowConfig("inspector", "Inspector", Icons.Default.Info, windowAnchors["inspector"] ?: ToolWindowAnchor.RIGHT)
     )
 
+    fun setWorkspaceExpandedPaths(paths: Set<String>) {
+        workspaceExpandedPaths = paths
+        prefs.put(PREF_WORKSPACE_EXPANDED_PATHS, paths.joinToString(";"))
+    }
+
     fun saveWorkspace(items: List<WorkspaceItem>) {
         workspaceItems = items
         prefs.put(PREF_WORKSPACE_ITEMS, items.joinToString(";") { it.serialize() })
+        val validPaths = items.map { it.path }.toSet()
+        setWorkspaceExpandedPaths(workspaceExpandedPaths.filter { it in validPaths }.toSet())
     }
 
     fun getActiveWindow(anchor: ToolWindowAnchor): String {
@@ -351,14 +369,19 @@ fun App() {
         }
     }
 
+    fun setGraphModelAndBump(model: GraphModel?) {
+        graphModel = model
+        graphRevision++
+    }
+
     // Logic to load a specific table
-    fun loadTable(tablePath: String, withRows: Boolean = showRows) {
+    fun loadTable(tablePath: String, withRows: Boolean = showRows, forceRelayout: Boolean = false) {
         val cacheKey = "$tablePath-rows_$withRows"
         selectedTablePath = tablePath
 
-        if (sessionCache.containsKey(cacheKey)) {
+        if (!forceRelayout && sessionCache.containsKey(cacheKey)) {
             val session = sessionCache[cacheKey]!!
-            graphModel = session.graph
+            setGraphModelAndBump(session.graph)
             selectedNodeIds = session.selectedNodeIds
             errorMsg = null
             isLoadingTable = false
@@ -380,14 +403,50 @@ fun App() {
 
                 if (requestId != loadRequestId) return@launch
                 sessionCache[cacheKey] = session
-                graphModel = session.graph
+                setGraphModelAndBump(session.graph)
                 selectedNodeIds = emptySet()
                 errorMsg = null
             } catch (e: Exception) {
                 if (requestId != loadRequestId) return@launch
                 errorMsg = e.message
                 e.printStackTrace()
-                graphModel = null
+                setGraphModelAndBump(null)
+            } finally {
+                if (requestId == loadRequestId) {
+                    isLoadingTable = false
+                }
+            }
+        }
+    }
+
+    fun reapplyCurrentLayout() {
+        val tablePath = selectedTablePath ?: return
+        val cacheKey = "$tablePath-rows_$showRows"
+
+        isLoadingTable = true
+        errorMsg = null
+        val requestId = loadRequestId + 1
+        loadRequestId = requestId
+
+        coroutineScope.launch {
+            try {
+                val existingTableModel = sessionCache[cacheKey]?.table
+                val tableModel = existingTableModel ?: withContext(Dispatchers.Default) {
+                    UnifiedTableModel(Paths.get(tablePath))
+                }
+                val newGraph = withContext(Dispatchers.Default) {
+                    GraphLayoutService.layoutGraph(tableModel, showRows)
+                }
+
+                if (requestId != loadRequestId) return@launch
+                val session = TableSession(tableModel, newGraph)
+                sessionCache[cacheKey] = session
+                setGraphModelAndBump(newGraph)
+                selectedNodeIds = emptySet()
+                errorMsg = null
+            } catch (e: Exception) {
+                if (requestId != loadRequestId) return@launch
+                errorMsg = e.message
             } finally {
                 if (requestId == loadRequestId) {
                     isLoadingTable = false
@@ -403,7 +462,7 @@ fun App() {
                 workspaceItems = workspaceItems,
                 selectedTablePath = selectedTablePath,
                 expandedPaths = workspaceExpandedPaths,
-                onExpandedPathsChange = { workspaceExpandedPaths = it },
+                onExpandedPathsChange = { setWorkspaceExpandedPaths(it) },
                 searchQuery = workspaceSearchQuery,
                 onSearchQueryChange = { workspaceSearchQuery = it },
                 onTableSelect = { tablePath ->
@@ -487,7 +546,7 @@ fun App() {
     val rightWindows = toolWindows.filter { windowAnchors[it.id] == ToolWindowAnchor.RIGHT }.map { it.id to it.icon }
     val topWindows = toolWindows.filter { windowAnchors[it.id] == ToolWindowAnchor.TOP }.map { it.id to it.icon }
     val bottomWindows = toolWindows.filter { windowAnchors[it.id] == ToolWindowAnchor.BOTTOM }.map { it.id to it.icon }
-    val filteredGraph = remember(graphModel, showMetadata, showSnapshots, showManifests, showDataFiles, showRows) {
+    val filteredGraph = remember(graphRevision, showMetadata, showSnapshots, showManifests, showDataFiles, showRows) {
         graphModel?.let { currentGraph ->
             val filteredNodes = currentGraph.nodes.filter { node ->
                 when (node) {
@@ -579,12 +638,23 @@ fun App() {
                     )
                     Box(Modifier.width(1.dp).height(16.dp).background(Color(0xFFCCCCCC)))
                     ToolbarIconButton(
-                        icon = Icons.Default.RestartAlt,
+                        icon = Icons.Default.FilterCenterFocus,
                         tooltip = "Reset Zoom",
                         onClick = {
                             zoom = 1f
                             prefs.putFloat(PREF_ZOOM, zoom)
                         },
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
+
+                Spacer(Modifier.width(12.dp))
+
+                ToolbarGroup {
+                    ToolbarIconButton(
+                        icon = Icons.Default.Refresh,
+                        tooltip = "Re-apply Layout",
+                        onClick = { reapplyCurrentLayout() },
                         modifier = Modifier.size(32.dp)
                     )
                 }
@@ -684,18 +754,21 @@ fun App() {
 
                 Box(Modifier.weight(1f).fillMaxHeight().clipToBounds()) {
                     if (filteredGraph != null) {
-                        GraphCanvas(
-                            graph = filteredGraph,
-                            selectedNodeIds = selectedNodeIds,
-                            isSelectMode = isSelectMode,
-                            zoom = zoom,
-                            onZoomChange = {
-                                zoom = it
-                                prefs.putFloat(PREF_ZOOM, it)
-                            },
-                            onSelectionChange = { selectedNodeIds = it },
-                            onEmptyAreaDoubleClick = { toggleAllToolWindows() }
-                        )
+                        key(graphRevision) {
+                            GraphCanvas(
+                                graph = filteredGraph,
+                                graphRevision = graphRevision,
+                                selectedNodeIds = selectedNodeIds,
+                                isSelectMode = isSelectMode,
+                                zoom = zoom,
+                                onZoomChange = {
+                                    zoom = it
+                                    prefs.putFloat(PREF_ZOOM, it)
+                                },
+                                onSelectionChange = { selectedNodeIds = it },
+                                onEmptyAreaDoubleClick = { toggleAllToolWindows() }
+                            )
+                        }
                     } else if (!isLoadingTable && workspaceItems.isNotEmpty()) {
                         Text(
                             "Select a table from the sidebar to view its structure.",
