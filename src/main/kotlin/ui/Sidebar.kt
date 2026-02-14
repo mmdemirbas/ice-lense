@@ -20,6 +20,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import model.WorkspaceItem
+import model.WorkspaceTableStatus
 import java.io.File
 import javax.swing.JFileChooser
 
@@ -68,6 +69,7 @@ fun FiltersPanel(
 @Composable
 fun WorkspacePanel(
     workspaceItems: List<WorkspaceItem>,
+    warehouseTableStatuses: Map<String, Map<String, WorkspaceTableStatus>>,
     selectedTablePath: String?,
     expandedPaths: Set<String>,
     onExpandedPathsChange: (Set<String>) -> Unit,
@@ -222,14 +224,35 @@ fun WorkspacePanel(
                     }
 
                     if (item is WorkspaceItem.Warehouse && (expandedPaths.contains(item.path) || searchQuery.isNotBlank())) {
-                        val filteredTables = if (searchQuery.isBlank()) item.tables
-                        else item.tables.filter { it.contains(searchQuery, ignoreCase = true) || item.name.contains(searchQuery, ignoreCase = true) }
+                        val tableStatuses = warehouseTableStatuses[item.path].orEmpty()
+                        val allTables = if (tableStatuses.isNotEmpty()) tableStatuses.keys.toList().sorted() else item.tables
+                        val filteredTables = if (searchQuery.isBlank()) {
+                            allTables
+                        } else {
+                            allTables.filter { it.contains(searchQuery, ignoreCase = true) || item.name.contains(searchQuery, ignoreCase = true) }
+                        }
 
                         items(filteredTables) { tableName ->
+                            val tableStatus = tableStatuses[tableName] ?: WorkspaceTableStatus.EXISTING
                             val tablePath = "${item.path}/$tableName"
                             val isSelected = tablePath == selectedTablePath
-                            val bgColor = if (isSelected) Color(0xFFE3F2FD) else Color.Transparent
-                            val textColor = if (isSelected) Color(0xFF1976D2) else Color.Black
+                            val statusBgColor = when (tableStatus) {
+                                WorkspaceTableStatus.NEW -> Color(0xFFFFF8E1)
+                                WorkspaceTableStatus.DELETED -> Color(0xFFFFEBEE)
+                                WorkspaceTableStatus.EXISTING -> Color.Transparent
+                            }
+                            val bgColor = if (isSelected) Color(0xFFE3F2FD) else statusBgColor
+                            val textColor = when {
+                                isSelected -> Color(0xFF1976D2)
+                                tableStatus == WorkspaceTableStatus.NEW -> Color(0xFFF57F17)
+                                tableStatus == WorkspaceTableStatus.DELETED -> Color(0xFFC62828)
+                                else -> Color.Black
+                            }
+                            val label = when (tableStatus) {
+                                WorkspaceTableStatus.NEW -> "$tableName (new)"
+                                WorkspaceTableStatus.DELETED -> "$tableName (deleted)"
+                                WorkspaceTableStatus.EXISTING -> tableName
+                            }
 
                             Row(
                                 modifier = Modifier
@@ -242,7 +265,7 @@ fun WorkspacePanel(
                                 Icon(Icons.Default.TableChart, null, modifier = Modifier.size(14.dp), tint = Color.Gray)
                                 Spacer(Modifier.width(8.dp))
                                 Text(
-                                    text = tableName,
+                                    text = label,
                                     fontSize = 12.sp,
                                     color = textColor,
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal

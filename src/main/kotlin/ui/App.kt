@@ -42,6 +42,7 @@ import service.GraphLayoutService
 import java.awt.Cursor
 import java.io.File
 import java.nio.file.Paths
+import java.nio.file.NoSuchFileException
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -192,6 +193,14 @@ fun deduplicateWorkspaceItems(items: List<WorkspaceItem>): List<WorkspaceItem> {
     }
 }
 
+fun initialWarehouseTableStatuses(items: List<WorkspaceItem>): Map<String, Map<String, WorkspaceTableStatus>> {
+    return items.asSequence()
+        .filterIsInstance<WorkspaceItem.Warehouse>()
+        .associate { warehouse ->
+            warehouse.path to warehouse.tables.associateWith { WorkspaceTableStatus.EXISTING }
+        }
+}
+
 @Composable
 fun App() {
     var workspaceItems by remember {
@@ -224,6 +233,7 @@ fun App() {
         mutableStateOf(expanded)
     }
     var workspaceSearchQuery by remember { mutableStateOf("") }
+    var warehouseTableStatuses by remember { mutableStateOf(initialWarehouseTableStatuses(workspaceItems)) }
     var isLoadingTable by remember { mutableStateOf(false) }
     var loadRequestId by remember { mutableStateOf(0L) }
     var autoReloadTable by remember { mutableStateOf(prefs.getBoolean(PREF_AUTO_RELOAD_TABLE, true)) }
@@ -293,6 +303,75 @@ fun App() {
         prefs.put(PREF_WORKSPACE_ITEMS, deduplicated.joinToString(";") { it.serialize() })
         val validPaths = deduplicated.map { it.path }.toSet()
         setWorkspaceExpandedPaths(workspaceExpandedPaths.filter { it in validPaths }.toSet())
+        val warehousePaths = deduplicated.filterIsInstance<WorkspaceItem.Warehouse>().map { it.path }.toSet()
+        warehouseTableStatuses = warehouseTableStatuses
+            .filterKeys { it in warehousePaths }
+            .toMutableMap()
+            .apply {
+                deduplicated.filterIsInstance<WorkspaceItem.Warehouse>().forEach { warehouse ->
+                    if (this[warehouse.path] == null) {
+                        this[warehouse.path] = warehouse.tables.associateWith { WorkspaceTableStatus.EXISTING }
+                    }
+                }
+            }
+    }
+
+    fun refreshWarehouseTables() {
+        val warehouses = workspaceItems.filterIsInstance<WorkspaceItem.Warehouse>()
+        if (warehouses.isEmpty()) return
+
+        var hasWorkspaceUpdate = false
+        var hasStatusUpdate = false
+
+        val refreshedItems = workspaceItems.map { item ->
+            if (item !is WorkspaceItem.Warehouse) return@map item
+
+            val scannedTables = scanForTables(File(item.path))
+            if (scannedTables != item.tables) {
+                hasWorkspaceUpdate = true
+            }
+
+            val existingStatuses = warehouseTableStatuses[item.path].orEmpty()
+            val knownTableNames = (existingStatuses.keys + scannedTables).toSortedSet()
+            val scannedSet = scannedTables.toSet()
+            val updatedStatuses = knownTableNames.associateWith { tableName ->
+                when {
+                    tableName in scannedSet && tableName !in existingStatuses -> WorkspaceTableStatus.NEW
+                    tableName in scannedSet && existingStatuses[tableName] == WorkspaceTableStatus.DELETED -> WorkspaceTableStatus.NEW
+                    tableName in scannedSet -> existingStatuses[tableName] ?: WorkspaceTableStatus.EXISTING
+                    else -> WorkspaceTableStatus.DELETED
+                }
+            }
+            if (updatedStatuses != existingStatuses) {
+                hasStatusUpdate = true
+            }
+
+            item.copy(tables = scannedTables)
+        }
+
+        if (hasWorkspaceUpdate) {
+            workspaceItems = deduplicateWorkspaceItems(refreshedItems)
+            prefs.put(PREF_WORKSPACE_ITEMS, workspaceItems.joinToString(";") { it.serialize() })
+        }
+
+        if (hasStatusUpdate || hasWorkspaceUpdate) {
+            warehouseTableStatuses = refreshedItems
+                .filterIsInstance<WorkspaceItem.Warehouse>()
+                .associate { warehouse ->
+                    val scannedSet = warehouse.tables.toSet()
+                    val previousStatuses = warehouseTableStatuses[warehouse.path].orEmpty()
+                    val knownTableNames = (previousStatuses.keys + warehouse.tables).toSortedSet()
+                    val statuses = knownTableNames.associateWith { tableName ->
+                        when {
+                            tableName in scannedSet && tableName !in previousStatuses -> WorkspaceTableStatus.NEW
+                            tableName in scannedSet && previousStatuses[tableName] == WorkspaceTableStatus.DELETED -> WorkspaceTableStatus.NEW
+                            tableName in scannedSet -> previousStatuses[tableName] ?: WorkspaceTableStatus.EXISTING
+                            else -> WorkspaceTableStatus.DELETED
+                        }
+                    }
+                    warehouse.path to statuses
+                }
+        }
     }
 
     fun getActiveWindow(anchor: ToolWindowAnchor): String {
@@ -438,6 +517,9 @@ fun App() {
                 val previousSession = sessionCache[cacheKey]
                 val reloaded = withContext(Dispatchers.Default) {
                     val fingerprint = computeTableFingerprint(tablePath)
+                    if (fingerprint == "missing" && previousSession != null) {
+                        return@withContext previousSession.copy(fingerprint = "missing")
+                    }
                     if (forceReloadFromFs && !forceRelayout && previousSession != null && previousSession.fingerprint == fingerprint) {
                         return@withContext previousSession
                     }
@@ -470,6 +552,19 @@ fun App() {
                     emptySet()
                 }
                 errorMsg = null
+            } catch (e: NoSuchFileException) {
+                if (requestId != loadRequestId) return@launch
+                val cached = sessionCache[cacheKey]
+                if (cached != null) {
+                    val fallback = cached.copy(fingerprint = "missing")
+                    sessionCache[cacheKey] = fallback
+                    setGraphModelAndBump(fallback.graph)
+                    selectedNodeIds = selectedNodeIds.filter { id -> fallback.graph.nodes.any { it.id == id } }.toSet()
+                    errorMsg = "Table was deleted from filesystem. Showing latest cached snapshot."
+                } else {
+                    errorMsg = "Table was deleted from filesystem and no cached snapshot is available."
+                    setGraphModelAndBump(null)
+                }
             } catch (e: Exception) {
                 if (requestId != loadRequestId) return@launch
                 errorMsg = e.message
@@ -535,6 +630,7 @@ fun App() {
         when (toolWindowId) {
             "workspace" -> WorkspacePanel(
                 workspaceItems = workspaceItems,
+                warehouseTableStatuses = warehouseTableStatuses,
                 selectedTablePath = selectedTablePath,
                 expandedPaths = workspaceExpandedPaths,
                 onExpandedPathsChange = { setWorkspaceExpandedPaths(it) },
@@ -1040,6 +1136,18 @@ fun App() {
                     }
                 }
             }
+            delay(3000)
+        }
+    }
+
+    LaunchedEffect(workspaceItems) {
+        refreshWarehouseTables()
+    }
+
+    LaunchedEffect(autoReloadTable) {
+        if (!autoReloadTable) return@LaunchedEffect
+        while (isActive) {
+            refreshWarehouseTables()
             delay(3000)
         }
     }

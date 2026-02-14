@@ -38,3 +38,9 @@ sealed class WorkspaceItem {
         }
     }
 }
+
+enum class WorkspaceTableStatus {
+    EXISTING,
+    NEW,
+    DELETED
+}
