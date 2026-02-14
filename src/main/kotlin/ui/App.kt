@@ -33,6 +33,8 @@ import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import model.*
@@ -66,12 +68,14 @@ private const val PREF_SHOW_DATA_FILES = "show_data_files"
 private const val PREF_IS_SELECT_MODE = "is_select_mode"
 private const val PREF_WORKSPACE_ITEMS = "workspace_items"
 private const val PREF_WORKSPACE_EXPANDED_PATHS = "workspace_expanded_paths"
+private const val PREF_AUTO_RELOAD_TABLE = "auto_reload_table"
 
 // Data class to hold cached table sessions
 data class TableSession(
     val table: UnifiedTableModel,
     val graph: GraphModel,
     var selectedNodeIds: Set<String> = emptySet(),
+    val fingerprint: String = "",
 )
 
 @Composable
@@ -207,6 +211,7 @@ fun App() {
     var workspaceSearchQuery by remember { mutableStateOf("") }
     var isLoadingTable by remember { mutableStateOf(false) }
     var loadRequestId by remember { mutableStateOf(0L) }
+    var autoReloadTable by remember { mutableStateOf(prefs.getBoolean(PREF_AUTO_RELOAD_TABLE, true)) }
 
     var showRows by remember { mutableStateOf(prefs.getBoolean(PREF_SHOW_ROWS, true)) }
     var isSelectMode by remember { mutableStateOf(prefs.getBoolean(PREF_IS_SELECT_MODE, false)) }
@@ -374,12 +379,31 @@ fun App() {
         graphRevision++
     }
 
+    fun computeTableFingerprint(tablePath: String): String {
+        val metadataDir = File(tablePath, "metadata")
+        if (!metadataDir.exists() || !metadataDir.isDirectory) return "missing"
+        val trackedFiles = metadataDir.listFiles()?.filter { file ->
+            file.isFile && (file.name.endsWith(".metadata.json") || file.name == "version-hint.text")
+        }?.sortedBy { it.name }.orEmpty()
+        if (trackedFiles.isEmpty()) return "empty"
+        val signature = trackedFiles.joinToString("|") { file ->
+            "${file.name}:${file.length()}:${file.lastModified()}"
+        }
+        return signature.hashCode().toString()
+    }
+
     // Logic to load a specific table
-    fun loadTable(tablePath: String, withRows: Boolean = showRows, forceRelayout: Boolean = false) {
+    fun loadTable(
+        tablePath: String,
+        withRows: Boolean = showRows,
+        forceRelayout: Boolean = false,
+        forceReloadFromFs: Boolean = false,
+        preservePositions: Boolean = false
+    ) {
         val cacheKey = "$tablePath-rows_$withRows"
         selectedTablePath = tablePath
 
-        if (!forceRelayout && sessionCache.containsKey(cacheKey)) {
+        if (!forceRelayout && !forceReloadFromFs && sessionCache.containsKey(cacheKey)) {
             val session = sessionCache[cacheKey]!!
             setGraphModelAndBump(session.graph)
             selectedNodeIds = session.selectedNodeIds
@@ -395,16 +419,40 @@ fun App() {
 
         coroutineScope.launch {
             try {
-                val session = withContext(Dispatchers.Default) {
+                val previousSession = sessionCache[cacheKey]
+                val reloaded = withContext(Dispatchers.Default) {
+                    val fingerprint = computeTableFingerprint(tablePath)
+                    if (forceReloadFromFs && !forceRelayout && previousSession != null && previousSession.fingerprint == fingerprint) {
+                        return@withContext previousSession
+                    }
                     val tableModel = UnifiedTableModel(Paths.get(tablePath))
                     val newGraph = GraphLayoutService.layoutGraph(tableModel, withRows)
-                    TableSession(tableModel, newGraph)
+                    if (preservePositions && previousSession != null) {
+                        val oldById = previousSession.graph.nodes.associateBy { it.id }
+                        newGraph.nodes.forEach { n ->
+                            val old = oldById[n.id]
+                            if (old != null) {
+                                n.x = old.x
+                                n.y = old.y
+                            }
+                        }
+                    }
+                    TableSession(
+                        table = tableModel,
+                        graph = newGraph,
+                        selectedNodeIds = previousSession?.selectedNodeIds.orEmpty(),
+                        fingerprint = fingerprint
+                    )
                 }
 
                 if (requestId != loadRequestId) return@launch
-                sessionCache[cacheKey] = session
-                setGraphModelAndBump(session.graph)
-                selectedNodeIds = emptySet()
+                sessionCache[cacheKey] = reloaded
+                setGraphModelAndBump(reloaded.graph)
+                selectedNodeIds = if (preservePositions && !forceRelayout) {
+                    selectedNodeIds.filter { id -> reloaded.graph.nodes.any { it.id == id } }.toSet()
+                } else {
+                    emptySet()
+                }
                 errorMsg = null
             } catch (e: Exception) {
                 if (requestId != loadRequestId) return@launch
@@ -431,6 +479,7 @@ fun App() {
         coroutineScope.launch {
             try {
                 val existingTableModel = sessionCache[cacheKey]?.table
+                val fingerprint = withContext(Dispatchers.Default) { computeTableFingerprint(tablePath) }
                 val tableModel = existingTableModel ?: withContext(Dispatchers.Default) {
                     UnifiedTableModel(Paths.get(tablePath))
                 }
@@ -439,7 +488,7 @@ fun App() {
                 }
 
                 if (requestId != loadRequestId) return@launch
-                val session = TableSession(tableModel, newGraph)
+                val session = TableSession(tableModel, newGraph, fingerprint = fingerprint)
                 sessionCache[cacheKey] = session
                 setGraphModelAndBump(newGraph)
                 selectedNodeIds = emptySet()
@@ -453,6 +502,16 @@ fun App() {
                 }
             }
         }
+    }
+
+    fun reloadCurrentTableFromFilesystem(preserveLayout: Boolean = true) {
+        val tablePath = selectedTablePath ?: return
+        loadTable(
+            tablePath = tablePath,
+            withRows = showRows,
+            forceReloadFromFs = true,
+            preservePositions = preserveLayout
+        )
     }
 
     @Composable
@@ -655,6 +714,28 @@ fun App() {
                         icon = Icons.Default.Refresh,
                         tooltip = "Re-apply Layout",
                         onClick = { reapplyCurrentLayout() },
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
+
+                Spacer(Modifier.width(8.dp))
+
+                ToolbarGroup {
+                    ToolbarIconButton(
+                        icon = Icons.Default.Sync,
+                        tooltip = "Reload from Filesystem",
+                        onClick = { reloadCurrentTableFromFilesystem(preserveLayout = true) },
+                        modifier = Modifier.size(32.dp)
+                    )
+                    Box(Modifier.width(1.dp).height(16.dp).background(Color(0xFFCCCCCC)))
+                    ToolbarIconButton(
+                        icon = Icons.Default.Schedule,
+                        tooltip = if (autoReloadTable) "Auto Reload: On" else "Auto Reload: Off",
+                        onClick = {
+                            autoReloadTable = !autoReloadTable
+                            prefs.putBoolean(PREF_AUTO_RELOAD_TABLE, autoReloadTable)
+                        },
+                        isSelected = autoReloadTable,
                         modifier = Modifier.size(32.dp)
                     )
                 }
@@ -923,6 +1004,24 @@ fun App() {
                         .background(if (dragTargetAnchor == ToolWindowAnchor.RIGHT) activeColor else baseColor)
                 )
             }
+        }
+    }
+
+    LaunchedEffect(selectedTablePath, showRows, autoReloadTable) {
+        if (!autoReloadTable) return@LaunchedEffect
+        while (isActive) {
+            val tablePath = selectedTablePath
+            if (tablePath != null && !isLoadingTable) {
+                val cacheKey = "$tablePath-rows_$showRows"
+                val session = sessionCache[cacheKey]
+                if (session != null) {
+                    val currentFingerprint = withContext(Dispatchers.Default) { computeTableFingerprint(tablePath) }
+                    if (currentFingerprint != session.fingerprint) {
+                        reloadCurrentTableFromFilesystem(preserveLayout = true)
+                    }
+                }
+            }
+            delay(3000)
         }
     }
 }
