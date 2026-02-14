@@ -57,10 +57,12 @@ sealed class GraphNode(
     data class RowNode(
         override val id: String,
         val data: Map<String, Any>,
-        val isDelete: Boolean = false,
+        val content: Int = 0, // 0=Data, 1=Pos Delete, 2=Eq Delete
         val initialX: Double = 0.0,
         val initialY: Double = 0.0,
-    ) : GraphNode(id, initialX, initialY, 200.0, 80.0)
+    ) : GraphNode(id, initialX, initialY, 200.0, 80.0) {
+        val isDelete: Boolean get() = content > 0
+    }
 }
 
 data class GraphEdge(

@@ -29,9 +29,10 @@ fun getGraphNodeColor(node: GraphNode): Color = when (node) {
         else -> Color(0xFFE0F2F1)
     }
 
-    is GraphNode.RowNode      -> when {
-        node.isDelete -> Color(0xFFFFCCBC)
-        else          -> Color(0xFFFFF9C4)
+    is GraphNode.RowNode      -> when (node.content) {
+        1    -> Color(0xFFFFCCBC) // Position Delete
+        2    -> Color(0xFFFFAB91) // Equality Delete
+        else -> Color(0xFFFFF9C4) // Data Row
     }
 }
 
@@ -49,9 +50,10 @@ fun getGraphNodeBorderColor(node: GraphNode): Color = when (node) {
         else -> Color(0xFF00897B)
     }
 
-    is GraphNode.RowNode      -> when {
-        node.isDelete -> Color(0xFFE64A19)
-        else          -> Color(0xFFFBC02D)
+    is GraphNode.RowNode      -> when (node.content) {
+        1    -> Color(0xFFE64A19) // Position Delete
+        2    -> Color(0xFFBF360C) // Equality Delete
+        else -> Color(0xFFFBC02D) // Data Row
     }
 }
 
@@ -118,21 +120,25 @@ fun ManifestCard(node: GraphNode.ManifestNode) {
 
 @Composable
 fun FileCard(node: GraphNode.FileNode) {
-    // V2 Content: 0=Data, 1=Pos Delete, 2=Eq Delete
-    val isDelete = (node.data.content ?: 0) > 0
-    val bg = if (isDelete) Color(0xFFEF9A9A) else Color(0xFFE0F2F1)
+    val content = node.data.content ?: 0
+    val label = when (content) {
+        1    -> "POS DELETE ${node.simpleId}"
+        2    -> "EQ DELETE ${node.simpleId}"
+        else -> "DATA FILE ${node.simpleId}"
+    }
 
     Box(
         modifier = Modifier
         .size(node.width.dp, node.height.dp)
-        .background(bg, RoundedCornerShape(4.dp))
-        .border(1.dp, Color.Gray, RoundedCornerShape(4.dp))
+        .background(getGraphNodeColor(node), RoundedCornerShape(4.dp))
+        .border(BorderStroke(1.dp, getGraphNodeBorderColor(node)), RoundedCornerShape(4.dp))
         .padding(4.dp)) {
         Column {
             Text(
-                if (isDelete) "DEL FILE ${node.simpleId}" else "DATA FILE ${node.simpleId}",
+                label,
                 fontSize = 8.sp,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                color = Color.DarkGray
             )
             Text(node.data.fileFormat.orEmpty(), fontSize = 10.sp)
             Text("${node.data.recordCount} rows", fontSize = 10.sp)
@@ -149,14 +155,22 @@ fun RowCard(node: GraphNode.RowNode) {
         .border(1.dp, getGraphNodeBorderColor(node), RoundedCornerShape(4.dp))
         .padding(6.dp)) {
         Column(Modifier.fillMaxSize()) {
+            val label = when (node.content) {
+                1    -> "POS DELETE ROW"
+                2    -> "EQ DELETE ROW"
+                else -> "DATA ROW"
+            }
             Text(
-                if (node.isDelete) "DELETE ROW" else "DATA ROW",
+                label,
                 fontSize = 9.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.DarkGray
             )
             Spacer(Modifier.height(2.dp))
-            node.data.entries.take(3).forEach { (k, v) ->
+            node.data.entries
+                .filter { (k, _) -> !(node.content == 1 && k == "file_path" && node.data.containsKey("target_file")) }
+                .take(3)
+                .forEach { (k, v) ->
                 Text(
                     text = "$k: $v",
                     fontSize = 10.sp,

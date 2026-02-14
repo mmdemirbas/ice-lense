@@ -437,7 +437,19 @@ private fun getNodeTooltipText(node: GraphNode): String {
         is GraphNode.MetadataNode -> "Metadata File\nVersion: ${node.data.formatVersion}\nSnapshots: ${node.data.snapshots.size}"
         is GraphNode.SnapshotNode -> "Snapshot: ${node.data.snapshotId}\nOp: ${node.data.summary["operation"]}"
         is GraphNode.ManifestNode -> "Manifest\nAdded Files: ${node.data.addedFilesCount}\nDeleted Files: ${node.data.deletedFilesCount}"
-        is GraphNode.FileNode     -> "Data File\nRecords: ${node.data.recordCount}\nSize: ${node.data.fileSizeInBytes} bytes"
-        is GraphNode.RowNode      -> if (node.isDelete) "Delete Record" else "Data Record"
+        is GraphNode.FileNode     -> {
+            val type = when (node.data.content ?: 0) {
+                1    -> "Position Delete File"
+                2    -> "Equality Delete File"
+                else -> "Data File"
+            }
+            "$type\nRecords: ${node.data.recordCount}\nSize: ${node.data.fileSizeInBytes} bytes"
+        }
+
+        is GraphNode.RowNode      -> when (node.content) {
+            1    -> "Position Delete Record"
+            2    -> "Equality Delete Record"
+            else -> "Data Record"
+        }
     }
 }

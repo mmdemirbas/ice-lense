@@ -122,19 +122,21 @@ object GraphLayoutService {
 
                                 if (localFile.exists()) {
                                     try {
-                                        val isDeleteFile = (entry.dataFile?.content ?: 0) > 0
+                                        val contentType = entry.dataFile?.content ?: 0
 
                                         unifiedDataFile.rows
                                             .take(5)
                                             .forEachIndexed { rIdx, rowData ->
-                                                val enrichedData = rowData.cells.toMutableMap()
-                                                if (isDeleteFile && enrichedData.containsKey("file_path")) {
+                                                val enrichedData = mutableMapOf<String, Any>()
+                                                val contentType = entry.dataFile?.content ?: 0
+                                                if (contentType > 0 && rowData.cells.containsKey("file_path")) {
                                                     val targetPath =
-                                                        enrichedData["file_path"].toString()
+                                                        rowData.cells["file_path"].toString()
                                                     val targetId =
                                                         filePathToSimpleId[targetPath] ?: "?"
                                                     enrichedData["target_file"] = "File $targetId"
                                                 }
+                                                enrichedData.putAll(rowData.cells)
 
                                                 val rId = "row_${fId}_$rIdx"
                                                 if (!elkNodes.containsKey(rId)) {
@@ -143,7 +145,7 @@ object GraphLayoutService {
                                                     logicalNodes[rId] = GraphNode.RowNode(
                                                         rId,
                                                         enrichedData,
-                                                        isDeleteFile
+                                                        contentType
                                                     )
 
                                                     ElkGraphUtil.createSimpleEdge(

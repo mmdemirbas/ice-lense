@@ -528,7 +528,11 @@ fun App() {
                                             }
 
                                             is GraphNode.RowNode -> DetailTable {
-                                                val typeStr = if (node.isDelete) "Delete Row" else "Data Row"
+                                                val typeStr = when (node.content) {
+                                                    1    -> "Position Delete Row"
+                                                    2    -> "Equality Delete Row"
+                                                    else -> "Data Row"
+                                                }
                                                 DetailRow("Column", "Value ($typeStr)", isHeader = true)
                                                 node.data.forEach { (k, v) ->
                                                     DetailRow(k, "$v")
