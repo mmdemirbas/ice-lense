@@ -427,32 +427,52 @@ fun App() {
                                 if (node != null) {
                                     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                                         when (node) {
-                                            is GraphNode.MetadataNode -> DetailTable {
-                                                DetailRow("Property", "Value", isHeader = true)
-                                                DetailRow("File Name", node.fileName)
-                                                DetailRow("Format Version", "${node.data.formatVersion}")
-                                                DetailRow("Table UUID", "${node.data.tableUuid ?: "N/A"}")
-                                                DetailRow("Location", "${node.data.location ?: "N/A"}")
-                                                DetailRow("Last Seq. Num.", "${node.data.lastSequenceNumber ?: "N/A"}")
-                                                DetailRow("Last Updated", formatTimestamp(node.data.lastUpdatedMs))
-                                                DetailRow("Last Column ID", "${node.data.lastColumnId ?: "N/A"}")
-                                                DetailRow("Current Snap.", "${node.data.currentSnapshotId ?: "None"}")
-                                                DetailRow("Total Snaps.", "${node.data.snapshots.size}")
-                                                node.data.properties.forEach { (k, v) ->
-                                                    DetailRow("Prop: $k", v)
+                                            is GraphNode.MetadataNode -> {
+                                                DetailTable {
+                                                    DetailRow("Property", "Value", isHeader = true)
+                                                    DetailRow("File Name", node.fileName)
+                                                    DetailRow("Format Version", "${node.data.formatVersion}")
+                                                    DetailRow("Table UUID", "${node.data.tableUuid ?: "N/A"}")
+                                                    DetailRow("Location", "${node.data.location ?: "N/A"}")
+                                                    DetailRow("Last Seq. Num.", "${node.data.lastSequenceNumber ?: "N/A"}")
+                                                    DetailRow("Last Updated", formatTimestamp(node.data.lastUpdatedMs))
+                                                    DetailRow("Last Column ID", "${node.data.lastColumnId ?: "N/A"}")
+                                                    DetailRow("Current Snap.", "${node.data.currentSnapshotId ?: "None"}")
+                                                    DetailRow("Total Snaps.", "${node.data.snapshots.size}")
+                                                }
+                                                if (node.data.properties.isNotEmpty()) {
+                                                    Spacer(Modifier.height(16.dp))
+                                                    Text("Properties", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                                    Spacer(Modifier.height(4.dp))
+                                                    DetailTable {
+                                                        DetailRow("Key", "Value", isHeader = true)
+                                                        node.data.properties.forEach { (k, v) ->
+                                                            DetailRow(k, v)
+                                                        }
+                                                    }
                                                 }
                                             }
 
-                                            is GraphNode.SnapshotNode -> DetailTable {
-                                                DetailRow("Property", "Value", isHeader = true)
-                                                DetailRow("Snapshot ID", "${node.data.snapshotId}")
-                                                DetailRow("Parent ID", "${node.data.parentSnapshotId ?: "None"}")
-                                                DetailRow("Timestamp", formatTimestamp(node.data.timestampMs))
-                                                val manifestList = node.data.manifestList
-                                                val manifestListLabel = if (manifestList == null) "N/A" else "${manifestList.substringAfterLast("/")} ($manifestList)"
-                                                DetailRow("Manifest List", manifestListLabel)
-                                                node.data.summary.forEach { (k, v) ->
-                                                    DetailRow("Summary: $k", v)
+                                            is GraphNode.SnapshotNode -> {
+                                                DetailTable {
+                                                    DetailRow("Property", "Value", isHeader = true)
+                                                    DetailRow("Snapshot ID", "${node.data.snapshotId}")
+                                                    DetailRow("Parent ID", "${node.data.parentSnapshotId ?: "None"}")
+                                                    DetailRow("Timestamp", formatTimestamp(node.data.timestampMs))
+                                                    val manifestList = node.data.manifestList
+                                                    val manifestListLabel = if (manifestList == null) "N/A" else "${manifestList.substringAfterLast("/")} ($manifestList)"
+                                                    DetailRow("Manifest List", manifestListLabel)
+                                                }
+                                                if (node.data.summary.isNotEmpty()) {
+                                                    Spacer(Modifier.height(16.dp))
+                                                    Text("Summary", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                                    Spacer(Modifier.height(4.dp))
+                                                    DetailTable {
+                                                        DetailRow("Key", "Value", isHeader = true)
+                                                        node.data.summary.forEach { (k, v) ->
+                                                            DetailRow(k, v)
+                                                        }
+                                                    }
                                                 }
                                             }
 
