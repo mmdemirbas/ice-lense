@@ -35,8 +35,12 @@ fun NavigationTree(
         if (selectedNode != null) {
             val index = flattenedTree.indexOfFirst { it.first.id == selectedNode.id }
             if (index >= 0) {
-                // Scroll the item into view smoothly
-                listState.animateScrollToItem(index)
+                val visibleItems = listState.layoutInfo.visibleItemsInfo
+                val isItemVisible = visibleItems.any { it.index == index }
+
+                if (!isItemVisible) {
+                    listState.animateScrollToItem(index)
+                }
             }
         }
     }

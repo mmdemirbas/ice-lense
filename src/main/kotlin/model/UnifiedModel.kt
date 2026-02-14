@@ -1,7 +1,7 @@
 package model
 
-import service.ParquetReader
 import service.IcebergReader
+import service.ParquetReader
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.readText
@@ -91,17 +91,8 @@ fun UnifiedManifest(manifestPath: Path, manifest: ManifestListEntry): UnifiedMan
             val dataFilePathRelative =
                 dataFilePathInFile.removePrefix(tableDirPrefix).removePrefix("/")
             val dataFilePathResolved = manifestPath.parent.parent.resolve(dataFilePathRelative)
-            UnifiedDataFile(dataFilePathResolved, dataFile)
+            UnifiedDataFile(path = dataFilePathResolved, metadata = dataFile)
         },
-    )
-}
-
-fun UnifiedDataFile(dataFilePath: Path, dataFile: ManifestEntry): UnifiedDataFile {
-    val rows = ParquetReader.queryParquet(dataFilePath.toString())
-    return UnifiedDataFile(
-        path = dataFilePath,
-        metadata = dataFile,
-        rows = rows.map { UnifiedRow(it) },
     )
 }
 
@@ -138,8 +129,12 @@ data class UnifiedManifest(
 data class UnifiedDataFile(
     val path: Path,
     val metadata: ManifestEntry,
-    val rows: List<UnifiedRow>,
-)
+    private val rowsLoader: () -> List<UnifiedRow> = {
+        ParquetReader.queryParquet(path.toString()).map { UnifiedRow(it) }
+    },
+) {
+    val rows: List<UnifiedRow> by lazy { rowsLoader() }
+}
 
 data class UnifiedRow(
     val cells: Map<String, Any>,
