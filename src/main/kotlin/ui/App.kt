@@ -1,7 +1,12 @@
 package ui
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -10,14 +15,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import model.GraphModel
 import model.GraphNode
 import model.UnifiedTableModel
 import service.GraphLayoutService
 import java.io.File
-import java.net.URI
 import java.nio.file.Paths
 import java.util.prefs.Preferences
 
@@ -199,104 +201,87 @@ fun App() {
 
                 Box(Modifier.weight(0.5f).fillMaxWidth()) {
                     selectedNode?.let { node ->
-                        Column {
+                        Column(
+                            Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                        ) { // NEW: Scrollable details
                             when (node) {
                                 is GraphNode.MetadataNode -> {
-                                    Text("Metadata Node", fontSize = 12.sp)
-                                    Text("Format Version: ${node.data.formatVersion}")
-                                    Text("Table UUID: ${node.data.tableUuid}")
-                                    Text("Location: ${node.data.location}")
-                                    Text("Current Snapshot: ${node.data.currentSnapshotId}")
-                                    Text("Snapshot Count: ${node.data.snapshots.size}")
+                                    DetailRow("Type", "Metadata File")
+                                    DetailRow("Format Version", "${node.data.formatVersion}")
+                                    DetailRow("Table UUID", "${node.data.tableUuid}")
+                                    DetailRow("Location", "${node.data.location}")
+                                    DetailRow("Current Snapshot", "${node.data.currentSnapshotId}")
+                                    DetailRow("Total Snapshots", "${node.data.snapshots.size}")
                                 }
 
                                 is GraphNode.SnapshotNode -> {
-                                    Text("Snapshot ID: ${node.data.snapshotId}", fontSize = 12.sp)
-                                    Text(
-                                        "Parent Snapshot ID: ${node.data.parentSnapshotId}",
-                                        fontSize = 12.sp
+                                    DetailRow("Type", "Snapshot")
+                                    DetailRow("ID", "${node.data.snapshotId}")
+                                    DetailRow(
+                                        "Parent ID", "${node.data.parentSnapshotId ?: "None"}"
                                     )
-                                    Text("Timestamp: ${node.data.timestampMs}", fontSize = 12.sp)
-                                    Text(
-                                        "Manifest List: ${node.data.manifestList}", fontSize = 12.sp
+                                    DetailRow("Timestamp", "${node.data.timestampMs}")
+                                    DetailRow(
+                                        "Operation",
+                                        "${node.data.summary["operation"] ?: "unknown"}"
                                     )
-                                    Text(
-                                        "Operation: ${node.data.summary["operation"]}",
-                                        fontSize = 12.sp
+                                    DetailRow(
+                                        "Manifest List",
+                                        "${node.data.manifestList?.substringAfterLast("/")}"
                                     )
+
+                                    Spacer(Modifier.height(8.dp))
+                                    Text("Summary:", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    node.data.summary
+                                        .filterKeys { it != "operation" }
+                                        .forEach { (k, v) ->
+                                            DetailRow(k, v)
+                                        }
                                 }
 
                                 is GraphNode.ManifestNode -> {
-                                    Text(
-                                        "Manifest Entry",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Text("Snapshot: ${node.data.addedSnapshotId}", fontSize = 12.sp)
-                                    Text(
-                                        "Content: ${if (node.data.content == 1) "Delete" else "Data"}",
-                                        fontSize = 12.sp
+                                    val contentType =
+                                        if (node.data.content == 1) "Delete" else "Data"
+                                    DetailRow("Type", "Manifest Entry ($contentType)")
+                                    DetailRow("Snapshot ID", "${node.data.addedSnapshotId}")
+                                    DetailRow("Added Files", "${node.data.addedDataFilesCount}")
+                                    DetailRow("Added Rows", "${node.data.addedRowsCount}")
+                                    DetailRow(
+                                        "Path", "${node.data.manifestPath?.substringAfterLast("/")}"
                                     )
                                 }
 
                                 is GraphNode.FileNode     -> {
-                                    Text(
-                                        "File Path:", fontSize = 12.sp, fontWeight = FontWeight.Bold
-                                    )
-                                    Text("${node.data.filePath}", fontSize = 10.sp)
-                                    Text("Rows: ${node.data.recordCount}", fontSize = 12.sp)
-                                    Spacer(Modifier.height(8.dp))
-
-                                    Button(onClick = {
-                                        coroutineScope.launch(Dispatchers.IO) {
-                                            try {
-                                                val rawPath = node.data.filePath.orEmpty()
-
-                                                // 1. Strip URI scheme if present (e.g., "file://")
-                                                val pathWithoutScheme =
-                                                    if (rawPath.startsWith("file:")) {
-                                                        URI(rawPath).path
-                                                    } else {
-                                                        rawPath
-                                                    }
-
-                                                // 2. Rebase path from Container OS to Host OS
-                                                val tableMarker = "/$selectedTable/"
-                                                val localFile =
-                                                    if (pathWithoutScheme.contains(tableMarker) && warehousePath != null) {
-                                                        val relativePart =
-                                                            pathWithoutScheme.substringAfter(
-                                                                tableMarker
-                                                            )
-                                                        File("$warehousePath/$selectedTable/$relativePart")
-                                                    } else {
-                                                        File(pathWithoutScheme)
-                                                    }
-
-                                                // 3. Validate existence before passing to DuckDB
-                                                if (!localFile.exists()) {
-                                                    throw Exception("Mapped file not found on host: ${localFile.absolutePath}")
-                                                }
-
-                                                errorMsg = null
-                                            } catch (e: Exception) {
-                                                errorMsg = "DuckDB Error: ${e.message}"
-                                                e.printStackTrace()
-                                            }
-                                        }
-                                    }) {
-                                        Text("Preview Data", fontSize = 12.sp)
+                                    val contentType = when (node.data.content ?: 0) {
+                                        1 -> "Position Delete"
+                                        2 -> "Equality Delete"
+                                        else -> "Data"
                                     }
+                                    DetailRow("Type", "Parquet File ($contentType)")
+                                    DetailRow("Format", "${node.data.fileFormat}")
+                                    DetailRow("Record Count", "${node.data.recordCount}")
+                                    DetailRow("File Size", "${node.data.fileSizeInBytes} bytes")
+                                    DetailRow(
+                                        "Path", "${node.data.filePath?.substringAfterLast("/")}"
+                                    )
                                 }
 
                                 is GraphNode.RowNode      -> {
+                                    DetailRow(
+                                        "Type", if (node.isDelete) "Delete Row" else "Data Row"
+                                    )
+                                    Spacer(Modifier.height(8.dp))
                                     Text(
-                                        "Row Data:", fontSize = 12.sp, fontWeight = FontWeight.Bold
+                                        "Record Data:",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp
                                     )
                                     node.data.forEach { (k, v) ->
-                                        Text("$k: $v", fontSize = 10.sp)
+                                        DetailRow(k, "$v")
                                     }
                                 }
+
+                                else                      -> Text("Unknown Node", fontSize = 12.sp)
                             }
                         }
                     } ?: Text(
@@ -305,5 +290,13 @@ fun App() {
                 }
             }
         }
+    }
+}
+
+@Composable
+fun DetailRow(key: String, value: String) {
+    Column(Modifier.padding(vertical = 4.dp)) {
+        Text(key, fontSize = 10.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
+        Text(value, fontSize = 12.sp)
     }
 }

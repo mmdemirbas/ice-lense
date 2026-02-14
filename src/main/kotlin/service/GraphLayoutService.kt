@@ -108,6 +108,8 @@ object GraphLayoutService {
 
                                 if (localFile.exists()) {
                                     try {
+                                    val isDeleteFile = (entry.dataFile?.content ?: 0) > 0
+
                                         unifiedDataFile.rows
                                             .take(5)
                                             .forEachIndexed { rIdx, rowData ->
@@ -115,7 +117,7 @@ object GraphLayoutService {
                                                 elkNodes[rId] =
                                                     createElkNode(root, rId, 200.0, 80.0)
                                                 logicalNodes[rId] =
-                                                    GraphNode.RowNode(rId, rowData.cells)
+                                                    GraphNode.RowNode(rId, rowData.cells, isDeleteFile)
 
                                                 // Hierarchy Edge (Column 5 -> Column 6)
                                                 ElkGraphUtil.createSimpleEdge(

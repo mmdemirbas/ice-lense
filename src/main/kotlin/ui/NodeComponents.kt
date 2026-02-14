@@ -24,7 +24,7 @@ fun getGraphNodeColor(node: GraphNode): Color = when (node) {
         if ((node.data.content ?: 0) > 0) 0xFFEF9A9A else 0xFFE0F2F1
     )
 
-    is GraphNode.RowNode          -> Color(0xFFFFF9C4)
+    is GraphNode.RowNode          -> Color(if (node.isDelete) 0xFFFFCCBC else 0xFFFFF9C4)
 }
 
 fun getGraphNodeBorderColor(node: GraphNode): Color = when (node) {
@@ -32,7 +32,7 @@ fun getGraphNodeBorderColor(node: GraphNode): Color = when (node) {
     is GraphNode.SnapshotNode     -> Color(0xFF1976D2)
     is GraphNode.ManifestNode     -> Color(if (node.data.content == 1) 0xFFD32F2F else 0xFF388E3C)
     is GraphNode.FileNode         -> Color.Gray
-    is GraphNode.RowNode          -> Color(0xFFFBC02D)
+    is GraphNode.RowNode          -> Color(if (node.isDelete) 0xFFE64A19 else 0xFFFBC02D)
 }
 
 @Composable
@@ -135,9 +135,11 @@ fun RowCard(node: GraphNode.RowNode, onClick: (GraphNode) -> Unit) {
         .clickable { onClick(node) }
         .padding(6.dp)) {
         Column(Modifier.fillMaxSize()) {
-            Text("DATA ROW", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color.DarkGray)
+            Text(
+                if (node.isDelete) "DELETE ROW" else "DATA ROW", // NEW
+                fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color.DarkGray
+            )
             Spacer(Modifier.height(2.dp))
-            // Extract the first 3 key-value pairs to display on the card
             node.data.entries.take(3).forEach { (k, v) ->
                 Text(
                     text = "$k: $v",
