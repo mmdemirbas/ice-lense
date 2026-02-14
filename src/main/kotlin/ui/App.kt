@@ -30,6 +30,9 @@ import service.GraphLayoutService
 import java.awt.Cursor
 import java.io.File
 import java.nio.file.Paths
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.prefs.Preferences
 
 // Access native OS preferences for this package
@@ -53,6 +56,19 @@ data class TableSession(
     val graph: GraphModel,
     var selectedNodeIds: Set<String> = emptySet(),
 )
+
+private val timestampFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
+    .withZone(ZoneId.systemDefault())
+
+private fun formatTimestamp(ms: Long?): String {
+    if (ms == null) return "N/A"
+    return try {
+        val formatted = timestampFormatter.format(Instant.ofEpochMilli(ms))
+        "$formatted ($ms)"
+    } catch (e: Exception) {
+        "$ms (Error)"
+    }
+}
 
 @Composable
 fun DraggableDivider(onDrag: (Float) -> Unit) {
@@ -418,28 +434,33 @@ fun App() {
                                                 DetailRow("Table UUID", "${node.data.tableUuid ?: "N/A"}")
                                                 DetailRow("Location", "${node.data.location ?: "N/A"}")
                                                 DetailRow("Last Seq. Num.", "${node.data.lastSequenceNumber ?: "N/A"}")
-                                                DetailRow("Last Updated", "${node.data.lastUpdatedMs ?: "N/A"}")
+                                                DetailRow("Last Updated", formatTimestamp(node.data.lastUpdatedMs))
                                                 DetailRow("Last Column ID", "${node.data.lastColumnId ?: "N/A"}")
                                                 DetailRow("Current Snap.", "${node.data.currentSnapshotId ?: "None"}")
                                                 DetailRow("Total Snaps.", "${node.data.snapshots.size}")
+                                                node.data.properties.forEach { (k, v) ->
+                                                    DetailRow("Prop: $k", v)
+                                                }
                                             }
 
                                             is GraphNode.SnapshotNode -> DetailTable {
                                                 DetailRow("Property", "Value", isHeader = true)
                                                 DetailRow("Snapshot ID", "${node.data.snapshotId}")
                                                 DetailRow("Parent ID", "${node.data.parentSnapshotId ?: "None"}")
-                                                DetailRow("Timestamp", "${node.data.timestampMs ?: "N/A"}")
-                                                DetailRow("Manifest List", "${node.data.manifestList?.substringAfterLast("/") ?: "N/A"}")
+                                                DetailRow("Timestamp", formatTimestamp(node.data.timestampMs))
+                                                val manifestList = node.data.manifestList
+                                                val manifestListLabel = if (manifestList == null) "N/A" else "${manifestList.substringAfterLast("/")} ($manifestList)"
+                                                DetailRow("Manifest List", manifestListLabel)
                                                 node.data.summary.forEach { (k, v) ->
                                                     DetailRow("Summary: $k", v)
                                                 }
                                             }
 
                                             is GraphNode.ManifestNode -> DetailTable {
-                                                val contentType = when (node.data.content) {
-                                                    1 -> "Deletes"
-                                                    0 -> "Data"
-                                                    else -> "Unknown (${node.data.content})"
+                                                val contentType = when (val c = node.data.content) {
+                                                    1 -> "Deletes ($c)"
+                                                    0 -> "Data ($c)"
+                                                    else -> "Unknown ($c)"
                                                 }
                                                 DetailRow("Property", "Value", isHeader = true)
                                                 DetailRow("Content Type", contentType)
@@ -453,18 +474,31 @@ fun App() {
                                                 DetailRow("Added Rows", "${node.data.addedRowsCount ?: 0}")
                                                 DetailRow("Existing Rows", "${node.data.existingRowsCount ?: 0}")
                                                 DetailRow("Deleted Rows", "${node.data.deletedRowsCount ?: 0}")
-                                                DetailRow("Path", "${node.data.manifestPath?.substringAfterLast("/") ?: "N/A"}")
+                                                DetailRow("Manifest Length", "${node.data.manifestLength ?: 0} bytes")
+                                                val manifestPath = node.data.manifestPath
+                                                val manifestPathLabel = if (manifestPath == null) "N/A" else "${manifestPath.substringAfterLast("/")} ($manifestPath)"
+                                                DetailRow("Path", manifestPathLabel)
                                             }
 
                                             is GraphNode.FileNode -> DetailTable {
-                                                val contentType = when (node.data.content ?: 0) {
-                                                    1 -> "Position Delete"
-                                                    2 -> "Equality Delete"
-                                                    else -> "Data"
+                                                val contentType = when (val c = node.data.content ?: 0) {
+                                                    1 -> "Position Delete ($c)"
+                                                    2 -> "Equality Delete ($c)"
+                                                    else -> "Data ($c)"
+                                                }
+                                                val status = when (val s = node.entry.status) {
+                                                    0 -> "EXISTING ($s)"
+                                                    1 -> "ADDED ($s)"
+                                                    2 -> "DELETED ($s)"
+                                                    else -> "Unknown ($s)"
                                                 }
                                                 DetailRow("Property", "Value", isHeader = true)
                                                 DetailRow("Simple ID", "${node.simpleId}")
                                                 DetailRow("Content Type", contentType)
+                                                DetailRow("Status", status)
+                                                DetailRow("Snapshot ID", "${node.entry.snapshotId ?: "N/A"}")
+                                                DetailRow("Sequence Num.", "${node.entry.sequenceNumber ?: "N/A"}")
+                                                DetailRow("File Seq. Num.", "${node.entry.fileSequenceNumber ?: "N/A"}")
                                                 DetailRow("File Format", "${node.data.fileFormat ?: "N/A"}")
                                                 DetailRow("Record Count", "${node.data.recordCount ?: 0}")
                                                 DetailRow("File Size", "${node.data.fileSizeInBytes ?: 0} bytes")

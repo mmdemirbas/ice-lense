@@ -59,7 +59,7 @@ object GraphLayoutService {
             // Link consecutive metadata files
             if (prevMetaId != null) {
                 // We keep the logical edge for drawing, but NOT the ELK edge to avoid horizontal layout
-                edges.add(GraphEdge("e_meta_seq_$mId", prevMetaId!!, mId, isSibling = true))
+                edges.add(GraphEdge("e_meta_seq_$mId", prevMetaId, mId, isSibling = true))
             }
             prevMetaId = mId
 
@@ -101,7 +101,7 @@ object GraphLayoutService {
 
                             if (!elkNodes.containsKey(fId)) {
                                 elkNodes[fId] = createElkNode(root, fId, 200.0, 60.0)
-                                logicalNodes[fId] = GraphNode.FileNode(fId, dataFile, simpleId)
+                                logicalNodes[fId] = GraphNode.FileNode(fId, entry, simpleId)
                             }
 
                             val edgeId = "e_file_${manId}_to_$fId"
@@ -134,7 +134,6 @@ object GraphLayoutService {
                                                     val targetId =
                                                         filePathToSimpleId[targetPath] ?: "?"
                                                     enrichedData["target_file"] = "File $targetId"
-                                                    enrichedData.remove("file_path")
                                                 }
 
                                                 val rId = "row_${fId}_$rIdx"

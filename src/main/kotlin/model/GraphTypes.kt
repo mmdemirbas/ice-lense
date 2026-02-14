@@ -46,11 +46,13 @@ sealed class GraphNode(
 
     data class FileNode(
         override val id: String,
-        val data: DataFile,
+        val entry: ManifestEntry,
         val simpleId: Int,
         val initialX: Double = 0.0,
         val initialY: Double = 0.0,
-    ) : GraphNode(id, initialX, initialY, 200.0, 60.0)
+    ) : GraphNode(id, initialX, initialY, 200.0, 60.0) {
+        val data: DataFile get() = entry.dataFile ?: DataFile(filePath = "unknown")
+    }
 
     data class RowNode(
         override val id: String,

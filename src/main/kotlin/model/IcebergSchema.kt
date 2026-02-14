@@ -14,6 +14,7 @@ data class TableMetadata(
     @SerialName("last-column-id") val lastColumnId: Int? = null,
     @SerialName("current-snapshot-id") val currentSnapshotId: Long? = null,
     val snapshots: List<Snapshot> = emptyList(),
+    val properties: Map<String, String> = emptyMap(),
 )
 
 @Serializable
