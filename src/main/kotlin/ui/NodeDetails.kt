@@ -312,6 +312,7 @@ fun NodeDetailsContent(graphModel: GraphModel?, selectedNodeIds: Set<String>) {
                             SectionTitle("Manifest List Rows")
                             WideTable(
                                 headers = listOf(
+                                    "Apply Order",
                                     "Manifest Path",
                                     "Content",
                                     "Manifest Length",
@@ -326,9 +327,10 @@ fun NodeDetailsContent(graphModel: GraphModel?, selectedNodeIds: Set<String>) {
                                     "Existing Rows",
                                     "Deleted Rows"
                                 ),
-                                rows = manifestChildren.map { manifestNode ->
+                                rows = manifestChildren.mapIndexed { index, manifestNode ->
                                     val manifest = manifestNode.data
                                     listOf(
+                                        "${index + 1}",
                                         normalizeText(manifest.manifestPath),
                                         if (manifest.content == 1) "Deletes (1)" else "Data (0)",
                                         "${manifest.manifestLength ?: "N/A"}",
@@ -388,6 +390,7 @@ fun NodeDetailsContent(graphModel: GraphModel?, selectedNodeIds: Set<String>) {
                             SectionTitle("Manifest Entries (Data File Details)")
                             WideTable(
                                 headers = listOf(
+                                    "Apply Order",
                                     "Simple ID",
                                     "Status",
                                     "Content",
@@ -410,7 +413,7 @@ fun NodeDetailsContent(graphModel: GraphModel?, selectedNodeIds: Set<String>) {
                                     "Equality IDs",
                                     "Sort Order ID"
                                 ),
-                                rows = fileChildren.map { fileNode ->
+                                rows = fileChildren.mapIndexed { index, fileNode ->
                                     val data = fileNode.data
                                     val status = when (fileNode.entry.status) {
                                         0 -> "EXISTING (0)"
@@ -424,6 +427,7 @@ fun NodeDetailsContent(graphModel: GraphModel?, selectedNodeIds: Set<String>) {
                                         else -> "Data (0)"
                                     }
                                     listOf(
+                                        "${index + 1}",
                                         "${fileNode.simpleId}",
                                         status,
                                         content,

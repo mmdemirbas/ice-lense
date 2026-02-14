@@ -996,7 +996,10 @@ fun App() {
                 if (activeRightToolWindowId.isNotEmpty()) {
                     DraggableVerticalDivider(onDrag = { delta ->
                         val deltaDp = with(density) { delta.toDp() }
-                        rightPaneWidth = (rightPaneWidth - deltaDp).coerceIn(200.dp, 600.dp)
+                        val windowWidthDp = with(density) { (appWindowBounds?.width ?: 1600f).toDp() }
+                        // Keep at least 260.dp for the center canvas while allowing a wide inspector panel.
+                        val maxRightWidth = (windowWidthDp - 260.dp).coerceAtLeast(200.dp)
+                        rightPaneWidth = (rightPaneWidth - deltaDp).coerceIn(200.dp, maxRightWidth)
                         prefs.putFloat(PREF_RIGHT_PANE_WIDTH, rightPaneWidth.value)
                     })
 

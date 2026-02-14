@@ -74,7 +74,7 @@ fun formatTimestamp(ms: Long?): String {
         val localZone = ZoneId.systemDefault().id
         val local = timestampFormatter.format(Instant.ofEpochMilli(ms))
         val utc = utcTimestampFormatter.format(Instant.ofEpochMilli(ms))
-        "$local ($localZone), $utc (UTC), epoch=$ms"
+        "Local: $local ($localZone)\nUTC:   $utc (UTC)\nEpoch: $ms"
     } catch (e: Exception) {
         "$ms (Error)"
     }
