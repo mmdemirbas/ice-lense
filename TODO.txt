@@ -1,0 +1,24 @@
+
+
+
+
+
+
+
+- Metadata node could point to multiple snapshots, and edges mix with each other. Resolve this UX problem somehow (using different colors etc.)
+- Pinch zoom is not working.
+- Fix minimap.
+- Improve node details by adding domain-specific table. For example data rows could be shown in a data file just like a database table, etc. Also add details from the json / avro lists items.
+- Show children count on each node on UI
+- Right-click node and open in explorer / finder.
+- Add filtering capability on the graph (filter based on node type, single metadata hierarchy etc. etc.)
+- Consider implementing different layouts
+
+PERFORMANCE
+- Consider performance for big tables / graphs.
+- Performance considerations. This must be muc more performant. Profile and resolve the problem.
+- Evaluate performance improvement options for a very big table.
+
+
+FUTURE
+- Consider making this project available as an IntelliJ IDEA plugin. (I can make it paid)
