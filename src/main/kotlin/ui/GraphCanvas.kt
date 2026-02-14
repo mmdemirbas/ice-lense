@@ -2,12 +2,18 @@ package ui
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.VectorConverter
-import androidx.compose.foundation.*
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.Text
+import androidx.compose.foundation.TooltipArea
+import androidx.compose.foundation.TooltipPlacement
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,74 +40,118 @@ import kotlin.math.min
 @Composable
 fun GraphCanvas(
     graph: GraphModel,
-    selectedNode: GraphNode?,
-    onNodeClick: (GraphNode) -> Unit,
+    selectedNodeIds: Set<String>,
+    isSelectMode: Boolean,
+    onSelectionChange: (Set<String>) -> Unit,
 ) {
     var zoom by remember { mutableStateOf(1f) }
     val offsetAnim = remember { Animatable(Offset(100f, 100f), Offset.VectorConverter) }
     val coroutineScope = rememberCoroutineScope()
 
     var hoveredNodeId by remember { mutableStateOf<String?>(null) }
+    var marqueeStart by remember { mutableStateOf<Offset?>(null) }
+    var marqueeEnd by remember { mutableStateOf<Offset?>(null) }
 
-    // 3. Use BoxWithConstraints to know viewport dimensions
     BoxWithConstraints(
         modifier = Modifier
-        .fillMaxSize()
-        .background(Color(0xFFE0E0E0))
-        .pointerInput(Unit) {
-            detectTransformGestures { _, pan, gestureZoom, _ ->
-                zoom = (zoom * gestureZoom).coerceIn(0.1f, 3f)
-                coroutineScope.launch {
-                    offsetAnim.snapTo(offsetAnim.value + pan)
-                }
-            }
-        }
-        .pointerInput(Unit) {
-            awaitPointerEventScope {
-                while (true) {
-                    val event = awaitPointerEvent()
-                    if (event.type == PointerEventType.Scroll) {
-                        val delta = event.changes.first().scrollDelta
-                        coroutineScope.launch {
-                            offsetAnim.snapTo(
-                                offsetAnim.value - Offset(delta.x * 20f, delta.y * 20f)
-                            )
+            .fillMaxSize()
+            .background(Color(0xFFE0E0E0))
+            .pointerInput(isSelectMode) {
+                if (isSelectMode) {
+                    detectDragGestures(
+                        onDragStart = { offset ->
+                            marqueeStart = offset
+                            marqueeEnd = offset
+                        },
+                        onDragEnd = {
+                            if (marqueeStart != null && marqueeEnd != null) {
+                                val left = minOf(marqueeStart!!.x, marqueeEnd!!.x)
+                                val top = minOf(marqueeStart!!.y, marqueeEnd!!.y)
+                                val right = maxOf(marqueeStart!!.x, marqueeEnd!!.x)
+                                val bottom = maxOf(marqueeStart!!.y, marqueeEnd!!.y)
+
+                                val logLeft = (left - offsetAnim.value.x) / zoom
+                                val logTop = (top - offsetAnim.value.y) / zoom
+                                val logRight = (right - offsetAnim.value.x) / zoom
+                                val logBottom = (bottom - offsetAnim.value.y) / zoom
+
+                                val selRect = androidx.compose.ui.geometry.Rect(logLeft, logTop, logRight, logBottom)
+
+                                val selected = graph.nodes.filter { n ->
+                                    selRect.overlaps(
+                                        androidx.compose.ui.geometry.Rect(
+                                            n.x.toFloat(), n.y.toFloat(),
+                                            (n.x + n.width).toFloat(), (n.y + n.height).toFloat()
+                                        )
+                                    )
+                                }.map { it.id }.toSet()
+
+                                onSelectionChange(selected)
+                            }
+                            marqueeStart = null
+                            marqueeEnd = null
                         }
-                        event.changes.forEach { it.consume() }
+                    ) { change, _ ->
+                        change.consume()
+                        marqueeEnd = change.position
+                    }
+                } else {
+                    detectTransformGestures { _, pan, gestureZoom, _ ->
+                        zoom = (zoom * gestureZoom).coerceIn(0.1f, 3f)
+                        coroutineScope.launch {
+                            offsetAnim.snapTo(offsetAnim.value + pan)
+                        }
                     }
                 }
             }
-        }) {
+            .pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        if (event.type == PointerEventType.Scroll) {
+                            val delta = event.changes.first().scrollDelta
+                            coroutineScope.launch {
+                                offsetAnim.snapTo(
+                                    offsetAnim.value - Offset(delta.x * 20f, delta.y * 20f)
+                                )
+                            }
+                            event.changes.forEach { it.consume() }
+                        }
+                    }
+                }
+            }) {
         val viewportWidth = constraints.maxWidth.toFloat()
         val viewportHeight = constraints.maxHeight.toFloat()
 
-        // 4. Calculate offset to center the node when selection changes
-        LaunchedEffect(selectedNode) {
-            if (selectedNode != null) {
-                val currentX = offsetAnim.value.x
-                val currentY = offsetAnim.value.y
+        LaunchedEffect(selectedNodeIds) {
+            if (selectedNodeIds.size == 1) {
+                val selectedNode = graph.nodes.find { it.id == selectedNodeIds.first() }
+                if (selectedNode != null) {
+                    val currentX = offsetAnim.value.x
+                    val currentY = offsetAnim.value.y
 
-                val nodeLeft = selectedNode.x.toFloat() * zoom + currentX
-                val nodeRight =
-                    (selectedNode.x.toFloat() + selectedNode.width.toFloat()) * zoom + currentX
-                val nodeTop = selectedNode.y.toFloat() * zoom + currentY
-                val nodeBottom =
-                    (selectedNode.y.toFloat() + selectedNode.height.toFloat()) * zoom + currentY
+                    val nodeLeft = selectedNode.x.toFloat() * zoom + currentX
+                    val nodeRight =
+                        (selectedNode.x.toFloat() + selectedNode.width.toFloat()) * zoom + currentX
+                    val nodeTop = selectedNode.y.toFloat() * zoom + currentY
+                    val nodeBottom =
+                        (selectedNode.y.toFloat() + selectedNode.height.toFloat()) * zoom + currentY
 
-                val margin = 50f // Keep a 50px padding from the edge
+                    val margin = 50f
 
-                val isVisible =
-                    nodeLeft >= margin && nodeRight <= (viewportWidth - margin) && nodeTop >= margin && nodeBottom <= (viewportHeight - margin)
+                    val isVisible =
+                        nodeLeft >= margin && nodeRight <= (viewportWidth - margin) && nodeTop >= margin && nodeBottom <= (viewportHeight - margin)
 
-                if (!isVisible) {
-                    val nodeCenterX = selectedNode.x.toFloat() + (selectedNode.width.toFloat() / 2f)
-                    val nodeCenterY =
-                        selectedNode.y.toFloat() + (selectedNode.height.toFloat() / 2f)
+                    if (!isVisible) {
+                        val nodeCenterX = selectedNode.x.toFloat() + (selectedNode.width.toFloat() / 2f)
+                        val nodeCenterY =
+                            selectedNode.y.toFloat() + (selectedNode.height.toFloat() / 2f)
 
-                    val targetX = (viewportWidth / 2f - nodeCenterX) * zoom
-                    val targetY = (viewportHeight / 2f - nodeCenterY) * zoom
+                        val targetX = (viewportWidth / 2f - nodeCenterX) * zoom
+                        val targetY = (viewportHeight / 2f - nodeCenterY) * zoom
 
-                    offsetAnim.animateTo(Offset(targetX, targetY))
+                        offsetAnim.animateTo(Offset(targetX, targetY))
+                    }
                 }
             }
         }
@@ -114,7 +164,7 @@ fun GraphCanvas(
                 translationY = offsetAnim.value.y
             }) {
             Canvas(modifier = Modifier.fillMaxSize()) {
-                val activeNodeId = hoveredNodeId ?: selectedNode?.id
+                val activeNodeIds = if (hoveredNodeId != null) setOf(hoveredNodeId!!) else selectedNodeIds
 
                 val normalEdges = mutableListOf<Path>()
                 val highlightedEdges = mutableListOf<Path>()
@@ -149,8 +199,7 @@ fun GraphCanvas(
                             path.lineTo(endX, endY)
                         }
 
-                        // Check if edge connects to the active node
-                        if (edge.fromId == activeNodeId || edge.toId == activeNodeId) {
+                        if (activeNodeIds.contains(edge.fromId) || activeNodeIds.contains(edge.toId)) {
                             highlightedEdges.add(path)
                         } else {
                             normalEdges.add(path)
@@ -158,11 +207,9 @@ fun GraphCanvas(
                     }
                 }
 
-                // Draw background edges first
                 normalEdges.forEach { path ->
                     drawPath(path, Color.LightGray, style = Stroke(width = 2f))
                 }
-                // Draw active edges on top, thicker and colored
                 highlightedEdges.forEach { path ->
                     drawPath(path, Color(0xFF1976D2), style = Stroke(width = 4f))
                 }
@@ -185,103 +232,128 @@ fun GraphCanvas(
                                     fontWeight = FontWeight.Medium
                                 )
                             }
-                        }, delayMillis = 400, // Trigger after 400ms hover
+                        },
+                        delayMillis = 400,
                         tooltipPlacement = TooltipPlacement.CursorPoint(
-                            alignment = Alignment.BottomEnd, offset = DpOffset(16.dp, 16.dp)
+                            alignment = Alignment.BottomEnd,
+                            offset = DpOffset(16.dp, 16.dp)
                         )
                     ) {
-                        Box(modifier = Modifier.pointerInput(node.id) {
-                                awaitPointerEventScope {
-                                    while (true) {
-                                        val event = awaitPointerEvent()
-                                        if (event.type == PointerEventType.Enter) {
-                                            hoveredNodeId = node.id
-                                        } else if (event.type == PointerEventType.Exit) {
-                                            hoveredNodeId = null
+                        Box(
+                            modifier = Modifier
+                                .pointerInput(node.id) {
+                                    awaitPointerEventScope {
+                                        while (true) {
+                                            val event = awaitPointerEvent()
+                                            if (event.type == PointerEventType.Enter) {
+                                                hoveredNodeId = node.id
+                                            } else if (event.type == PointerEventType.Exit) {
+                                                hoveredNodeId = null
+                                            }
                                         }
                                     }
                                 }
-                            }.pointerInput(node.id + "_drag") {
-                                detectDragGestures { change, dragAmount ->
-                                    change.consume()
-                                    node.x += dragAmount.x / zoom
-                                    node.y += dragAmount.y / zoom
+                                .pointerInput(node.id + "_drag") {
+                                    detectDragGestures { change, dragAmount ->
+                                        change.consume()
+                                        val dx = dragAmount.x / zoom
+                                        val dy = dragAmount.y / zoom
+
+                                        if (selectedNodeIds.contains(node.id)) {
+                                            graph.nodes.filter { it.id in selectedNodeIds }.forEach { n ->
+                                                n.x += dx
+                                                n.y += dy
+                                            }
+                                        } else {
+                                            node.x += dx
+                                            node.y += dy
+                                            onSelectionChange(setOf(node.id))
+                                        }
+                                    }
                                 }
-                            }) {
+                                .clickable { onSelectionChange(setOf(node.id)) }
+                        ) {
                             when (node) {
-                                is GraphNode.MetadataNode -> MetadataCard(node, onNodeClick)
-                                is GraphNode.SnapshotNode -> SnapshotCard(node, onNodeClick)
-                                is GraphNode.ManifestNode -> ManifestCard(node, onNodeClick)
-                                is GraphNode.FileNode     -> FileCard(node, onNodeClick)
-                                is GraphNode.RowNode      -> RowCard(node, onNodeClick)
+                                is GraphNode.MetadataNode -> MetadataCard(node) { onSelectionChange(setOf(it.id)) }
+                                is GraphNode.SnapshotNode -> SnapshotCard(node) { onSelectionChange(setOf(it.id)) }
+                                is GraphNode.ManifestNode -> ManifestCard(node) { onSelectionChange(setOf(it.id)) }
+                                is GraphNode.FileNode     -> FileCard(node) { onSelectionChange(setOf(it.id)) }
+                                is GraphNode.RowNode      -> RowCard(node) { onSelectionChange(setOf(it.id)) }
                             }
                         }
                     }
                 }
             }
+        }
 
-            // Minimap Radar UI
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(16.dp)
-                    .size(240.dp, 160.dp)
-                    .background(Color.White.copy(alpha = 0.85f), RoundedCornerShape(8.dp))
-                    .border(1.dp, Color.Gray, RoundedCornerShape(8.dp))
-                    // Allow dragging the minimap viewport rectangle to pan the main canvas
-                    .pointerInput(Unit) {
-                        detectDragGestures { change, dragAmount ->
-                            change.consume()
-                            val mapScale =
-                                min(240f / graph.width.toFloat(), 160f / graph.height.toFloat())
-                            // Inverse translation: dragging minimap view moves main canvas opposite
-                            coroutineScope.launch {
-                                offsetAnim.snapTo(
-                                    offsetAnim.value - Offset(
-                                        dragAmount.x / mapScale * zoom,
-                                        dragAmount.y / mapScale * zoom
-                                    )
-                                )
-                            }
-                        }
-                    }) {
-                Canvas(modifier = Modifier.fillMaxSize().padding(4.dp)) {
-                    val mapScale = min(
-                        size.width / graph.width.toFloat(),
-                        size.height / graph.height.toFloat()
-                    )
-                    val mapOffsetX = (size.width - (graph.width.toFloat() * mapScale)) / 2f
-                    val mapOffsetY = (size.height - (graph.height.toFloat() * mapScale)) / 2f
+        if (marqueeStart != null && marqueeEnd != null) {
+            Canvas(Modifier.fillMaxSize()) {
+                val left = minOf(marqueeStart!!.x, marqueeEnd!!.x)
+                val top = minOf(marqueeStart!!.y, marqueeEnd!!.y)
+                val width = kotlin.math.abs(marqueeStart!!.x - marqueeEnd!!.x)
+                val height = kotlin.math.abs(marqueeStart!!.y - marqueeEnd!!.y)
 
-                    translate(mapOffsetX, mapOffsetY) {
-                        // 1. Draw mini nodes
-                        graph.nodes.forEach { n ->
-                            drawRect(
-                                color = getGraphNodeColor(n), // Uses shared theme
-                                topLeft = Offset(
-                                    n.x.toFloat() * mapScale,
-                                    n.y.toFloat() * mapScale
-                                ),
-                                size = Size(
-                                    n.width.toFloat() * mapScale,
-                                    n.height.toFloat() * mapScale
+                drawRect(
+                    color = Color(0xFF1976D2).copy(alpha = 0.2f),
+                    topLeft = Offset(left, top),
+                    size = Size(width, height)
+                )
+                drawRect(
+                    color = Color(0xFF1976D2),
+                    topLeft = Offset(left, top),
+                    size = Size(width, height),
+                    style = Stroke(1.dp.toPx())
+                )
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(16.dp)
+                .size(240.dp, 160.dp)
+                .background(Color.White.copy(alpha = 0.85f), RoundedCornerShape(8.dp))
+                .border(1.dp, Color.Gray, RoundedCornerShape(8.dp))
+                .pointerInput(Unit) {
+                    detectDragGestures { change, dragAmount ->
+                        change.consume()
+                        val mapScale =
+                            min(240f / graph.width.toFloat(), 160f / graph.height.toFloat())
+                        coroutineScope.launch {
+                            offsetAnim.snapTo(
+                                offsetAnim.value - Offset(
+                                    dragAmount.x / mapScale * zoom, dragAmount.y / mapScale * zoom
                                 )
                             )
                         }
+                    }
+                }) {
+            Canvas(modifier = Modifier.fillMaxSize().padding(4.dp)) {
+                val mapScale =
+                    min(size.width / graph.width.toFloat(), size.height / graph.height.toFloat())
+                val mapOffsetX = (size.width - (graph.width.toFloat() * mapScale)) / 2f
+                val mapOffsetY = (size.height - (graph.height.toFloat() * mapScale)) / 2f
 
-                        // 2. Draw active viewport window
-                        val vpW = viewportWidth / zoom
-                        val vpH = viewportHeight / zoom
-                        val vpX = -offsetAnim.value.x / zoom
-                        val vpY = -offsetAnim.value.y / zoom
-
+                translate(mapOffsetX, mapOffsetY) {
+                    graph.nodes.forEach { n ->
                         drawRect(
-                            color = Color.Red.copy(alpha = 0.4f),
-                            topLeft = Offset(vpX * mapScale, vpY * mapScale),
-                            size = Size(vpW * mapScale, vpH * mapScale),
-                            style = Stroke(width = 3f)
+                            color = getGraphNodeColor(n),
+                            topLeft = Offset(n.x.toFloat() * mapScale, n.y.toFloat() * mapScale),
+                            size = Size(n.width.toFloat() * mapScale, n.height.toFloat() * mapScale)
                         )
                     }
+
+                    val vpW = viewportWidth / zoom
+                    val vpH = viewportHeight / zoom
+                    val vpX = -offsetAnim.value.x / zoom
+                    val vpY = -offsetAnim.value.y / zoom
+
+                    drawRect(
+                        color = Color.Red.copy(alpha = 0.4f),
+                        topLeft = Offset(vpX * mapScale, vpY * mapScale),
+                        size = Size(vpW * mapScale, vpH * mapScale),
+                        style = Stroke(width = 3f)
+                    )
                 }
             }
         }

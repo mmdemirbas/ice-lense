@@ -7,6 +7,7 @@ import org.eclipse.elk.core.data.LayoutMetaDataService
 import org.eclipse.elk.core.math.KVector
 import org.eclipse.elk.core.options.CoreOptions
 import org.eclipse.elk.core.options.Direction
+import org.eclipse.elk.core.options.EdgeRouting
 import org.eclipse.elk.core.options.SizeConstraint
 import org.eclipse.elk.core.util.BasicProgressMonitor
 import org.eclipse.elk.graph.ElkNode
@@ -30,7 +31,7 @@ object GraphLayoutService {
         // 1. Shift to Rightward Flow and enforce column spacing
         root.setProperty(CoreOptions.ALGORITHM, "org.eclipse.elk.layered")
         root.setProperty(CoreOptions.DIRECTION, Direction.RIGHT)
-        root.setProperty(CoreOptions.EDGE_ROUTING, org.eclipse.elk.core.options.EdgeRouting.SPLINES)
+        root.setProperty(CoreOptions.EDGE_ROUTING, EdgeRouting.SPLINES)
         root.setProperty(CoreOptions.SPACING_NODE_NODE, 100.0)
         root.setProperty(
             org.eclipse.elk.alg.layered.options.LayeredOptions.SPACING_NODE_NODE_BETWEEN_LAYERS,
@@ -44,10 +45,8 @@ object GraphLayoutService {
         // Registry to map long Iceberg paths to simple IDs
         var nextFileId = 1
         val filePathToSimpleId = mutableMapOf<String, Int>()
+        var prevMetaId: String? = null
 
-        var prevMetaId: String? = null // Add before the loop
-
-        // 1. COLUMN 1: Lineage of Metadata Files
         tableModel.metadatas.forEach { metadata ->
             val fileName = metadata.path.fileName.toString()
             val meta = metadata.metadata
@@ -75,27 +74,16 @@ object GraphLayoutService {
                 ElkGraphUtil.createSimpleEdge(elkNodes[mId], elkNodes[sId])
                 edges.add(GraphEdge("e_snap_$sId", mId, sId))
 
-                // Snapshot Timeline Sibling Edge (Top to Bottom)
-//                if (snap.parentSnapshotId != null) {
-//                    val pId = "snap_${snap.parentSnapshotId}"
-//                    if (elkNodes.containsKey(pId)) {
-//                        edges.add(GraphEdge("e_$sId", pId, sId, isSibling = true))
-//                    }
-//                }
-
-                // 4. COLUMN 4: Manifest Files
                 val manifests = snapshot.manifestLists
                 manifests.forEachIndexed { idx, unifiedManifest ->
                     val manifest = unifiedManifest.metadata
-                    val mId = "man_${snap.snapshotId}_$idx"
-                    elkNodes[mId] = createElkNode(root, mId, 200.0, 80.0)
-                    logicalNodes[mId] = GraphNode.ManifestNode(mId, manifest)
+                    val manId = "man_${snap.snapshotId}_$idx"
+                    elkNodes[manId] = createElkNode(root, manId, 200.0, 80.0)
+                    logicalNodes[manId] = GraphNode.ManifestNode(manId, manifest)
 
-                    // Hierarchy Edge (Column 3 -> Column 4)
-                    ElkGraphUtil.createSimpleEdge(elkNodes[sId], elkNodes[mId])
-                    edges.add(GraphEdge("e_man_$mId", sId, mId))
+                    ElkGraphUtil.createSimpleEdge(elkNodes[sId], elkNodes[manId])
+                    edges.add(GraphEdge("e_man_$manId", sId, manId))
 
-                    // 5. COLUMN 5: Data/Delete Files
                     val manifestPath = manifest.manifestPath
                     if (manifestPath != null) {
                         val unifiedDataFiles = unifiedManifest.manifests
@@ -104,21 +92,18 @@ object GraphLayoutService {
                             val dataFile = entry.dataFile ?: DataFile(filePath = "unknown")
                             val rawPath = dataFile.filePath.orEmpty()
                             val simpleId = filePathToSimpleId.getOrPut(rawPath) { nextFileId++ }
-
                             val fId = "file_$simpleId"
+
                             if (!elkNodes.containsKey(fId)) {
                                 elkNodes[fId] = createElkNode(root, fId, 200.0, 60.0)
                                 logicalNodes[fId] = GraphNode.FileNode(fId, dataFile, simpleId)
                             }
 
-                            // Hierarchy Edge (Manifest -> File)
-                            val edgeId = "e_file_${mId}_to_$fId"
-                            ElkGraphUtil.createSimpleEdge(elkNodes[mId], elkNodes[fId])
-                            edges.add(GraphEdge(edgeId, mId, fId))
+                            val edgeId = "e_file_${manId}_to_$fId"
+                            ElkGraphUtil.createSimpleEdge(elkNodes[manId], elkNodes[fId])
+                            edges.add(GraphEdge(edgeId, manId, fId))
 
-                            // 6. COLUMN 6: Row Data
                             if (showRows) {
-                                val rawPath = dataFile.filePath.orEmpty()
                                 val pathWithoutScheme =
                                     if (rawPath.startsWith("file:")) URI(rawPath).path else rawPath
                                 val tableMarker = "/${tableModel.name}/"
@@ -143,7 +128,6 @@ object GraphLayoutService {
                                                         enrichedData["file_path"].toString()
                                                     val targetId =
                                                         filePathToSimpleId[targetPath] ?: "?"
-                                                    // Add clean reference and remove the long path to save UI space
                                                     enrichedData["target_file"] = "File $targetId"
                                                     enrichedData.remove("file_path")
                                                 }
@@ -153,12 +137,14 @@ object GraphLayoutService {
                                                     elkNodes[rId] =
                                                         createElkNode(root, rId, 200.0, 80.0)
                                                     logicalNodes[rId] = GraphNode.RowNode(
-                                                        rId, rowData.cells, isDeleteFile
+                                                        rId,
+                                                        enrichedData,
+                                                        isDeleteFile
                                                     )
 
-                                                    // Hierarchy Edge (File -> Row)
                                                     ElkGraphUtil.createSimpleEdge(
-                                                        elkNodes[fId], elkNodes[rId]
+                                                        elkNodes[fId],
+                                                        elkNodes[rId]
                                                     )
                                                     edges.add(GraphEdge("e_row_$rId", fId, rId))
                                                 }

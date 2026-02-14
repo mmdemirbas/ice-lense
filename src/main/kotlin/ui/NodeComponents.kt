@@ -17,13 +17,13 @@ import androidx.compose.ui.unit.sp
 import model.GraphNode
 
 fun getGraphNodeColor(node: GraphNode): Color = when (node) {
-    is GraphNode.MetadataNode -> Color(0xFFE1BEE7) // Purple
+    is GraphNode.MetadataNode -> Color(0xFFE1BEE7)
     is GraphNode.SnapshotNode -> Color(0xFFBBDEFB)
     is GraphNode.ManifestNode -> Color(if (node.data.content == 1) 0xFFFFCDD2 else 0xFFC8E6C9)
     is GraphNode.FileNode     -> when (node.data.content ?: 0) {
-        1    -> Color(0xFFFFCC80) // Orange for Position Delete
-        2    -> Color(0xFFEF9A9A) // Red for Equality Delete
-        else -> Color(0xFFE0F2F1) // Teal for Data
+        1    -> Color(0xFFFFCC80)
+        2    -> Color(0xFFEF9A9A)
+        else -> Color(0xFFE0F2F1)
     }
 
     is GraphNode.RowNode      -> Color(if (node.isDelete) 0xFFFFCCBC else 0xFFFFF9C4)
@@ -85,7 +85,6 @@ fun SnapshotCard(node: GraphNode.SnapshotNode, onClick: (GraphNode) -> Unit) {
 
 @Composable
 fun ManifestCard(node: GraphNode.ManifestNode, onClick: (GraphNode) -> Unit) {
-    // Distinguish Data Manifest (0) vs Delete Manifest (1)
     val color = if (node.data.content == 1) Color(0xFFFFCDD2) else Color(0xFFC8E6C9)
     val borderColor = if (node.data.content == 1) Color(0xFFD32F2F) else Color(0xFF388E3C)
 
@@ -143,8 +142,10 @@ fun RowCard(node: GraphNode.RowNode, onClick: (GraphNode) -> Unit) {
         .padding(6.dp)) {
         Column(Modifier.fillMaxSize()) {
             Text(
-                if (node.isDelete) "DELETE ROW" else "DATA ROW", // NEW
-                fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color.DarkGray
+                if (node.isDelete) "DELETE ROW" else "DATA ROW",
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.DarkGray
             )
             Spacer(Modifier.height(2.dp))
             node.data.entries.take(3).forEach { (k, v) ->

@@ -26,26 +26,23 @@ import model.GraphNode
 @Composable
 fun NavigationTree(
     graph: GraphModel,
-    selectedNode: GraphNode?,
+    selectedNodeIds: Set<String>,
     onNodeSelect: (GraphNode) -> Unit,
 ) {
-    // State to track which nodes are expanded
     var expandedNodeIds by remember { mutableStateOf(setOf<String>()) }
 
-    // Flatten DAG based on expanded state. Returns: (Node, Depth, HasChildren)
     val flattenedTree = remember(graph, expandedNodeIds) {
         flattenGraph(graph, expandedNodeIds)
     }
     val listState = rememberLazyListState()
 
-    // Auto-expand parents and scroll to selected node when triggered from canvas
-    LaunchedEffect(selectedNode) {
-        if (selectedNode != null) {
-            val path = findPathToNode(graph, selectedNode.id)
+    LaunchedEffect(selectedNodeIds) {
+        if (selectedNodeIds.size == 1) {
+            val selectedId = selectedNodeIds.first()
+            val path = findPathToNode(graph, selectedId)
             expandedNodeIds = expandedNodeIds + path
 
-            // Slight delay to ensure the LazyColumn recomposes with the newly expanded items before scrolling
-            val index = flattenedTree.indexOfFirst { it.first.id == selectedNode.id }
+            val index = flattenedTree.indexOfFirst { it.first.id == selectedId }
             if (index >= 0) {
                 val visibleItems = listState.layoutInfo.visibleItemsInfo
                 val isItemVisible = visibleItems.any { it.index == index }
@@ -58,7 +55,7 @@ fun NavigationTree(
 
     LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
         items(flattenedTree) { (node, depth, hasChildren) ->
-            val isSelected = node.id == selectedNode?.id
+            val isSelected = selectedNodeIds.contains(node.id)
             val isExpanded = expandedNodeIds.contains(node.id)
             val bgColor = if (isSelected) Color(0xFFE3F2FD) else Color.Transparent
             val textColor = if (isSelected) Color(0xFF1976D2) else Color.DarkGray
@@ -71,7 +68,6 @@ fun NavigationTree(
                 .padding(vertical = 4.dp, horizontal = 8.dp)
                 .padding(start = (depth * 16).dp),
                 verticalAlignment = Alignment.CenterVertically) {
-                // Expand/Collapse Toggle
                 Box(
                     modifier = Modifier.size(16.dp).clickable {
                             if (hasChildren) {
@@ -94,7 +90,6 @@ fun NavigationTree(
 
                 Spacer(Modifier.width(4.dp))
 
-                // Color Dot
                 Box(
                     modifier = Modifier.size(10.dp).background(
                         getGraphNodeColor(node), androidx.compose.foundation.shape.CircleShape
@@ -136,12 +131,10 @@ private fun flattenGraph(
 
         result.add(Triple(node, depth, children.isNotEmpty()))
 
-        // Only traverse deeper if the node is in the expanded set
         if (expandedIds.contains(nodeId)) {
             children.forEach { traverse(it, depth + 1) }
         }
 
-        // Remove from visited so sibling branches can reach shared nodes if necessary
         visited.remove(nodeId)
     }
 
@@ -152,14 +145,12 @@ private fun flattenGraph(
     return result
 }
 
-// Traces edges backward to find all parent IDs required to expand a target node
 private fun findPathToNode(graph: GraphModel, targetId: String): List<String> {
     val edgesByTarget = graph.edges.groupBy { it.toId }
     val path = mutableListOf<String>()
     var currentId = targetId
 
     while (true) {
-        // Find the first parent (assuming standard Iceberg hierarchical flow)
         val parentEdge = edgesByTarget[currentId]?.firstOrNull() ?: break
         currentId = parentEdge.fromId
         path.add(currentId)
