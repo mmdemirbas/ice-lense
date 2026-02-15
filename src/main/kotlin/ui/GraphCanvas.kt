@@ -85,6 +85,46 @@ fun GraphCanvas(
     val nodeById = graph.nodes.associateBy { it.id }
     val selectedNodes = graph.nodes.filter { it.id in selectedNodeIds }
 
+    val snapshotManifestOutLaneByEdgeId = remember(graph.nodes, graph.edges) {
+        val bySource = graph.edges.groupBy { it.fromId }
+        buildMap<String, Int> {
+            bySource.forEach { (sourceId, sourceEdges) ->
+                val sourceNode = nodeById[sourceId] ?: return@forEach
+                if (sourceNode !is GraphNode.SnapshotNode) return@forEach
+                val ranked = sourceEdges
+                    .mapNotNull { edge ->
+                        val targetNode = nodeById[edge.toId] ?: return@mapNotNull null
+                        if (targetNode !is GraphNode.ManifestNode) return@mapNotNull null
+                        edge to targetNode.y
+                    }
+                    .sortedBy { it.second }
+                ranked.forEachIndexed { index, (edge, _) ->
+                    put(edge.id, index)
+                }
+            }
+        }
+    }
+
+    val snapshotManifestInLaneByEdgeId = remember(graph.nodes, graph.edges) {
+        val byTarget = graph.edges.groupBy { it.toId }
+        buildMap<String, Int> {
+            byTarget.forEach { (targetId, targetEdges) ->
+                val targetNode = nodeById[targetId] ?: return@forEach
+                if (targetNode !is GraphNode.ManifestNode) return@forEach
+                val ranked = targetEdges
+                    .mapNotNull { edge ->
+                        val sourceNode = nodeById[edge.fromId] ?: return@mapNotNull null
+                        if (sourceNode !is GraphNode.SnapshotNode) return@mapNotNull null
+                        edge to sourceNode.y
+                    }
+                    .sortedBy { it.second }
+                ranked.forEachIndexed { index, (edge, _) ->
+                    put(edge.id, index)
+                }
+            }
+        }
+    }
+
     fun DrawScope.drawEdge(edge: GraphEdge, source: GraphNode, target: GraphNode, color: Color, strokeWidth: Float) {
         if (edge.isSibling) {
             val startX = (source.x + source.width / 2).toFloat()
@@ -97,11 +137,25 @@ fun GraphCanvas(
             drawLine(color, Offset(startX, midY), Offset(endX, midY), strokeWidth = strokeWidth)
             drawLine(color, Offset(endX, midY), Offset(endX, endY), strokeWidth = strokeWidth)
         } else {
+            val isSnapshotToManifest = source is GraphNode.SnapshotNode && target is GraphNode.ManifestNode
+            val outIndex = snapshotManifestOutLaneByEdgeId[edge.id] ?: 0
+            val inIndex = snapshotManifestInLaneByEdgeId[edge.id] ?: 0
+            val outCount = if (isSnapshotToManifest) {
+                graph.edges.count { it.fromId == edge.fromId && nodeById[it.toId] is GraphNode.ManifestNode }
+            } else 1
+            val inCount = if (isSnapshotToManifest) {
+                graph.edges.count { it.toId == edge.toId && nodeById[it.fromId] is GraphNode.SnapshotNode }
+            } else 1
+            val outCentered = outIndex - ((outCount - 1) / 2f)
+            val inCentered = inIndex - ((inCount - 1) / 2f)
+            val laneYSpacing = 8f
+            val laneXSpacing = 14f
+
             val startX = (source.x + source.width).toFloat()
-            val startY = (source.y + source.height / 2).toFloat()
+            val startY = (source.y + source.height / 2).toFloat() + if (isSnapshotToManifest) outCentered * laneYSpacing else 0f
             val endX = target.x.toFloat()
-            val endY = (target.y + target.height / 2).toFloat()
-            val midX = startX + (endX - startX) / 2f
+            val endY = (target.y + target.height / 2).toFloat() + if (isSnapshotToManifest) inCentered * laneYSpacing else 0f
+            val midX = startX + (endX - startX) / 2f + if (isSnapshotToManifest) (outCentered + inCentered) * 0.5f * laneXSpacing else 0f
 
             drawLine(color, Offset(startX, startY), Offset(midX, startY), strokeWidth = strokeWidth)
             drawLine(color, Offset(midX, startY), Offset(midX, endY), strokeWidth = strokeWidth)

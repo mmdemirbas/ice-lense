@@ -42,7 +42,6 @@ object GraphLayoutService {
         val logicalNodes = mutableMapOf<String, GraphNode>()
         val edges = mutableListOf<GraphEdge>()
         val processedManifests = mutableSetOf<String>()
-        val processedFiles = mutableSetOf<String>()
 
         // Registry to map long Iceberg paths to simple IDs
         var nextFileId = 1
@@ -70,7 +69,7 @@ object GraphLayoutService {
                 val sId = "snap_${snap.snapshotId}"
                 if (!elkNodes.containsKey(sId)) {
                     val simpleSnapshotId = nextSnapshotSimpleId++
-                    elkNodes[sId] = createElkNode(root, sId, 220.0, 100.0)
+                    elkNodes[sId] = createElkNode(root, sId, 210.0, 84.0)
                     logicalNodes[sId] = GraphNode.SnapshotNode(sId, snap, simpleSnapshotId)
                 }
 
@@ -114,12 +113,14 @@ object GraphLayoutService {
                                     { it.metadata.dataFile?.filePath ?: "" }
                                 )
                             )
-                            unifiedDataFiles.take(10).forEach { unifiedDataFile ->
+                            unifiedDataFiles.take(10).forEachIndexed { fileIndex, unifiedDataFile ->
                                 val entry = unifiedDataFile.metadata
                                 val dataFile = entry.dataFile ?: DataFile(filePath = "unknown")
                                 val rawPath = dataFile.filePath.orEmpty()
                                 val simpleId = filePathToSimpleId.getOrPut(rawPath) { nextFileId++ }
-                                val fId = "file_$simpleId"
+                                // Keep logical file number stable by file path, but node IDs unique per manifest entry
+                                // so vertical order can follow manifest timeline without cross-manifest conflicts.
+                                val fId = "file_${manId}_${simpleId}_$fileIndex"
 
                                 if (!elkNodes.containsKey(fId)) {
                                     elkNodes[fId] = createElkNode(root, fId, 200.0, 60.0)
@@ -130,7 +131,7 @@ object GraphLayoutService {
                                 ElkGraphUtil.createSimpleEdge(elkNodes[manId], elkNodes[fId])
                                 edges.add(GraphEdge(edgeId, manId, fId))
 
-                                if (showRows && processedFiles.add(fId)) {
+                                if (showRows) {
                                     val pathWithoutScheme =
                                         if (rawPath.startsWith("file:")) URI(rawPath).path else rawPath
                                     val tableMarker = "/${tableModel.name}/"
@@ -286,16 +287,39 @@ object GraphLayoutService {
             reorder(manifestChildren, manifestComparator)
         }
 
-        nodesById.values.filterIsInstance<GraphNode.ManifestNode>().forEach { parent ->
-            val fileChildren = childrenByParent[parent.id].orEmpty()
+        // File nodes must follow manifest timeline globally (top->bottom), not just inside each manifest.
+        // Build desired order as: manifests ordered by y, then each manifest's files by fileComparator.
+        val orderedManifests = nodesById.values
+            .filterIsInstance<GraphNode.ManifestNode>()
+            .sortedBy { it.y }
+
+        val desiredFileOrder = orderedManifests.flatMap { manifestNode ->
+            childrenByParent[manifestNode.id].orEmpty()
                 .mapNotNull { nodesById[it] as? GraphNode.FileNode }
-            reorder(fileChildren, fileComparator)
+                .sortedWith(fileComparator)
+        }
+        if (desiredFileOrder.size > 1) {
+            val fileYSlots = desiredFileOrder.map { it.y }.sorted()
+            desiredFileOrder.forEachIndexed { index, fileNode ->
+                fileNode.y = fileYSlots[index]
+            }
         }
 
-        nodesById.values.filterIsInstance<GraphNode.FileNode>().forEach { parent ->
-            val rowChildren = childrenByParent[parent.id].orEmpty()
+        // Row nodes must follow file timeline globally (top->bottom), not just inside each file.
+        val orderedFiles = nodesById.values
+            .filterIsInstance<GraphNode.FileNode>()
+            .sortedBy { it.y }
+
+        val desiredRowOrder = orderedFiles.flatMap { fileNode ->
+            childrenByParent[fileNode.id].orEmpty()
                 .mapNotNull { nodesById[it] as? GraphNode.RowNode }
-            reorder(rowChildren, rowComparator)
+                .sortedWith(rowComparator)
+        }
+        if (desiredRowOrder.size > 1) {
+            val rowYSlots = desiredRowOrder.map { it.y }.sorted()
+            desiredRowOrder.forEachIndexed { index, rowNode ->
+                rowNode.y = rowYSlots[index]
+            }
         }
     }
 

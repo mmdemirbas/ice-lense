@@ -37,7 +37,7 @@ sealed class GraphNode(
         val simpleId: Int,
         val initialX: Double = 0.0,
         val initialY: Double = 0.0,
-    ) : GraphNode(id, initialX, initialY, 220.0, 100.0)
+    ) : GraphNode(id, initialX, initialY, 210.0, 84.0)
 
     data class ManifestNode(
         override val id: String,
