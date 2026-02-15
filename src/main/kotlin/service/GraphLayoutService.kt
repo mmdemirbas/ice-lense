@@ -27,7 +27,16 @@ object GraphLayoutService {
             .registerLayoutMetaDataProviders(LayeredMetaDataProvider())
     }
 
-    fun layoutGraph(tableModel: UnifiedTableModel, showRows: Boolean): GraphModel {
+    enum class ParentAlignment {
+        ALIGN_FIRST_CHILD,
+        CENTER_CHILDREN
+    }
+
+    fun layoutGraph(
+        tableModel: UnifiedTableModel,
+        showRows: Boolean,
+        parentAlignment: ParentAlignment = ParentAlignment.ALIGN_FIRST_CHILD
+    ): GraphModel {
         val root = ElkGraphUtil.createGraph()
 
         // 1. Shift to Rightward Flow and enforce column spacing
@@ -284,6 +293,8 @@ object GraphLayoutService {
         }
 
         enforceChronologicalVerticalOrder(logicalNodes, edges)
+        alignParentsWithChildren(logicalNodes, edges, parentAlignment)
+        preventOverlaps(logicalNodes)
 
         return GraphModel(finalNodes, edges, root.width, root.height)
     }
@@ -410,19 +421,17 @@ object GraphLayoutService {
         }
 
         // Row nodes must follow file timeline globally (top->bottom), not just inside each file.
+        // Group rows by snapshot to prevent cross-snapshot interleaving.
         val orderedFiles = nodesById.values
             .filterIsInstance<GraphNode.FileNode>()
             .sortedBy { it.y }
 
-        val desiredRowOrder = orderedFiles.flatMap { fileNode ->
-            childrenByParent[fileNode.id].orEmpty()
-                .mapNotNull { nodesById[it] as? GraphNode.RowNode }
-                .sortedWith(rowComparator)
-        }
+        // Build mapping of row -> parent file -> snapshot
         val rowParentFileByRowId = orderedFiles.flatMap { fileNode ->
             childrenByParent[fileNode.id].orEmpty().map { rowId -> rowId to fileNode }
         }.toMap()
 
+        // Build data rows index by (normalized_path, snapshotId) for position delete targeting
         val dataRowsByTarget = mutableMapOf<Pair<String, Long>, List<GraphNode.RowNode>>()
         orderedFiles.forEach { fileNode ->
             val contentType = fileNode.data.content ?: 0
@@ -437,34 +446,69 @@ object GraphLayoutService {
             dataRowsByTarget[key] = rows
         }
 
-        data class PosDeleteMove(val row: GraphNode.RowNode, val anchor: GraphNode.RowNode)
-        val moveCandidates = mutableListOf<PosDeleteMove>()
-        desiredRowOrder.forEach { rowNode ->
-            if (rowNode.content != 1) return@forEach
-            val deleteFile = rowParentFileByRowId[rowNode.id] ?: return@forEach
-            val deleteSnapshotId = deleteFile.entry.snapshotId ?: return@forEach
-            val targetPath = rowNode.data["file_path"]?.toString() ?: return@forEach
-            val targetRows = dataRowsByTarget[normalizeFilePath(targetPath) to deleteSnapshotId] ?: return@forEach
-            val position = parsePosition(rowNode.data) ?: return@forEach
-            if (position < 0 || position >= targetRows.size) return@forEach
-            moveCandidates.add(PosDeleteMove(rowNode, targetRows[position]))
-        }
+        // Group files by snapshot for strict snapshot isolation
+        val filesBySnapshot = orderedFiles.groupBy { it.entry.snapshotId }
+        val snapshotsInOrder = orderedFiles.map { it.entry.snapshotId }.distinct()
 
-        val adjustedRowOrder = desiredRowOrder.toMutableList()
-        val insertedAfterAnchor = mutableMapOf<String, Int>()
-        moveCandidates.forEach { move ->
-            adjustedRowOrder.remove(move.row)
-            val anchorIndex = adjustedRowOrder.indexOfFirst { it.id == move.anchor.id }
-            if (anchorIndex < 0) {
-                adjustedRowOrder.add(move.row)
-            } else {
-                val offset = insertedAfterAnchor[move.anchor.id] ?: 0
-                val insertAt = (anchorIndex + 1 + offset).coerceAtMost(adjustedRowOrder.size)
-                adjustedRowOrder.add(insertAt, move.row)
-                insertedAfterAnchor[move.anchor.id] = offset + 1
+        // Build final row order with snapshot isolation
+        val adjustedRowOrder = mutableListOf<GraphNode.RowNode>()
+
+        snapshotsInOrder.forEach { snapshotId ->
+            val snapshotFiles = filesBySnapshot[snapshotId] ?: return@forEach
+
+            // Separate rows by content type within this snapshot
+            val eqDeleteRows = mutableListOf<GraphNode.RowNode>()
+            val dataRows = mutableListOf<GraphNode.RowNode>()
+            val posDeleteRows = mutableListOf<GraphNode.RowNode>()
+
+            snapshotFiles.forEach { fileNode ->
+                val contentType = fileNode.data.content ?: 0
+                val rows = childrenByParent[fileNode.id].orEmpty()
+                    .mapNotNull { nodesById[it] as? GraphNode.RowNode }
+                    .sortedWith(rowComparator)
+
+                when (contentType) {
+                    2 -> eqDeleteRows.addAll(rows)  // Equality deletes
+                    0 -> dataRows.addAll(rows)      // Data rows
+                    1 -> posDeleteRows.addAll(rows) // Position deletes
+                }
+            }
+
+            // Add equality deletes first
+            adjustedRowOrder.addAll(eqDeleteRows)
+
+            // Add data rows
+            adjustedRowOrder.addAll(dataRows)
+
+            // Position deletes: insert after their target data row
+            data class PosDeleteMove(val row: GraphNode.RowNode, val anchor: GraphNode.RowNode)
+            val moveCandidates = mutableListOf<PosDeleteMove>()
+
+            posDeleteRows.forEach { rowNode ->
+                val deleteFile = rowParentFileByRowId[rowNode.id] ?: return@forEach
+                val targetPath = rowNode.data["file_path"]?.toString() ?: return@forEach
+                val targetRows = dataRowsByTarget[normalizeFilePath(targetPath) to snapshotId] ?: return@forEach
+                val position = parsePosition(rowNode.data) ?: return@forEach
+                if (position < 0 || position >= targetRows.size) return@forEach
+                moveCandidates.add(PosDeleteMove(rowNode, targetRows[position]))
+            }
+
+            // Insert position deletes after their anchor rows
+            val insertedAfterAnchor = mutableMapOf<String, Int>()
+            moveCandidates.forEach { move ->
+                val anchorIndex = adjustedRowOrder.indexOfFirst { it.id == move.anchor.id }
+                if (anchorIndex < 0) {
+                    adjustedRowOrder.add(move.row)
+                } else {
+                    val offset = insertedAfterAnchor[move.anchor.id] ?: 0
+                    val insertAt = (anchorIndex + 1 + offset).coerceAtMost(adjustedRowOrder.size)
+                    adjustedRowOrder.add(insertAt, move.row)
+                    insertedAfterAnchor[move.anchor.id] = offset + 1
+                }
             }
         }
 
+        // Assign Y positions
         if (adjustedRowOrder.size > 1) {
             val rowYSlots = adjustedRowOrder.map { it.y }.sorted()
             var currentY = rowYSlots.first()
@@ -474,6 +518,160 @@ object GraphLayoutService {
                 rowNode.y = currentY
             }
         }
+    }
+
+    private fun alignParentsWithChildren(
+        nodesById: Map<String, GraphNode>,
+        edges: List<GraphEdge>,
+        strategy: ParentAlignment
+    ) {
+        val nonSiblingEdges = edges.filter { !it.isSibling }
+        val childrenByParent = nonSiblingEdges.groupBy { it.fromId }
+            .mapValues { (_, v) -> v.map { nodesById[it.toId] }.filterNotNull() }
+
+        fun alignWithFirstChild(parent: GraphNode, children: List<GraphNode>) {
+            if (children.isEmpty()) return
+            parent.y = children.minByOrNull { it.y }?.y ?: parent.y
+        }
+
+        fun centerWithChildren(parent: GraphNode, children: List<GraphNode>) {
+            if (children.isEmpty()) return
+            val minChildY = children.minOfOrNull { it.y } ?: return
+            val maxChildY = children.maxOfOrNull { it.y + it.height } ?: return
+            val childrenCenter = (minChildY + maxChildY) / 2.0
+            parent.y = childrenCenter - parent.height / 2.0
+        }
+
+        // Align files with their rows, applying special rules for delete files
+        val fileNodes = nodesById.values.filterIsInstance<GraphNode.FileNode>()
+        fileNodes.forEach { fileNode ->
+            val children = childrenByParent[fileNode.id] ?: emptyList()
+            val rows = children.filterIsInstance<GraphNode.RowNode>()
+            if (rows.isEmpty()) return@forEach
+
+            val contentType = fileNode.data.content ?: 0
+            when (contentType) {
+                2 -> {
+                    // Equality delete file: align with first equality delete row
+                    val firstEqDeleteRow = rows.firstOrNull { it.content == 2 }
+                    if (firstEqDeleteRow != null) {
+                        fileNode.y = firstEqDeleteRow.y
+                    } else {
+                        alignWithFirstChild(fileNode, rows)
+                    }
+                }
+                1 -> {
+                    // Position delete file:
+                    // Check if there's a sibling equality delete file (same parent manifest, similar position)
+                    val parentManifestId = nonSiblingEdges.find { it.toId == fileNode.id }?.fromId
+                    val siblingFiles = if (parentManifestId != null) {
+                        childrenByParent[parentManifestId]?.filterIsInstance<GraphNode.FileNode>() ?: emptyList()
+                    } else emptyList()
+
+                    val eqDeleteSibling = siblingFiles.firstOrNull { sibling ->
+                        sibling.id != fileNode.id && (sibling.data.content ?: 0) == 2
+                    }
+
+                    if (eqDeleteSibling != null) {
+                        // Place next to equality delete sibling (don't overlap, just nearby)
+                        // We'll handle exact positioning in overlap prevention
+                        fileNode.y = eqDeleteSibling.y
+                    } else {
+                        // Align with first position delete row
+                        val firstPosDeleteRow = rows.firstOrNull { it.content == 1 }
+                        if (firstPosDeleteRow != null) {
+                            fileNode.y = firstPosDeleteRow.y
+                        } else {
+                            alignWithFirstChild(fileNode, rows)
+                        }
+                    }
+                }
+                0 -> {
+                    // Data file: align with first data row unless position delete occupies that spot
+                    val firstDataRow = rows.firstOrNull { it.content == 0 }
+                    if (firstDataRow != null) {
+                        // Check if any position delete is at the same Y coordinate (already placed there)
+                        val posDeleteAtSameY = rows.any { row ->
+                            row.content == 1 && kotlin.math.abs(row.y - firstDataRow.y) < 1.0
+                        }
+                        if (posDeleteAtSameY) {
+                            // Place next to position delete (will be adjusted in overlap prevention)
+                            fileNode.y = firstDataRow.y
+                        } else {
+                            fileNode.y = firstDataRow.y
+                        }
+                    } else {
+                        alignWithFirstChild(fileNode, rows)
+                    }
+                }
+            }
+        }
+
+        // Align manifests, snapshots, and metadata with their children using the selected strategy
+        fun alignParent(parent: GraphNode, children: List<GraphNode>) {
+            when (strategy) {
+                ParentAlignment.ALIGN_FIRST_CHILD -> alignWithFirstChild(parent, children)
+                ParentAlignment.CENTER_CHILDREN -> centerWithChildren(parent, children)
+            }
+        }
+
+        // Manifests
+        nodesById.values.filterIsInstance<GraphNode.ManifestNode>().forEach { manifest ->
+            val children = childrenByParent[manifest.id] ?: emptyList()
+            alignParent(manifest, children)
+        }
+
+        // Snapshots
+        nodesById.values.filterIsInstance<GraphNode.SnapshotNode>().forEach { snapshot ->
+            val children = childrenByParent[snapshot.id] ?: emptyList()
+            alignParent(snapshot, children)
+        }
+
+        // Metadata
+        nodesById.values.filterIsInstance<GraphNode.MetadataNode>().forEach { metadata ->
+            val children = childrenByParent[metadata.id] ?: emptyList()
+            alignParent(metadata, children)
+        }
+
+        // Table
+        nodesById.values.filterIsInstance<GraphNode.TableNode>().forEach { table ->
+            val children = childrenByParent[table.id] ?: emptyList()
+            alignParent(table, children)
+        }
+    }
+
+    private fun preventOverlaps(nodesById: Map<String, GraphNode>) {
+        // Process each layer independently to prevent overlaps
+        // Layers are determined by node types and their natural left-to-right order
+
+        val margin = 8.0  // Minimum gap between nodes
+
+        fun preventOverlapsInLayer(nodes: List<GraphNode>) {
+            if (nodes.size < 2) return
+
+            // Sort by current Y position
+            val sorted = nodes.sortedBy { it.y }
+
+            // Push down overlapping nodes
+            for (i in 1 until sorted.size) {
+                val prev = sorted[i - 1]
+                val curr = sorted[i]
+                val prevBottom = prev.y + prev.height
+                val minAllowedY = prevBottom + margin
+
+                if (curr.y < minAllowedY) {
+                    curr.y = minAllowedY
+                }
+            }
+        }
+
+        // Process each node type as a separate layer
+        preventOverlapsInLayer(nodesById.values.filterIsInstance<GraphNode.TableNode>())
+        preventOverlapsInLayer(nodesById.values.filterIsInstance<GraphNode.MetadataNode>())
+        preventOverlapsInLayer(nodesById.values.filterIsInstance<GraphNode.SnapshotNode>())
+        preventOverlapsInLayer(nodesById.values.filterIsInstance<GraphNode.ManifestNode>())
+        preventOverlapsInLayer(nodesById.values.filterIsInstance<GraphNode.FileNode>())
+        preventOverlapsInLayer(nodesById.values.filterIsInstance<GraphNode.RowNode>())
     }
 
     private class FileTimeAccumulator {
