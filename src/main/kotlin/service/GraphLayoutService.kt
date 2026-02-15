@@ -54,6 +54,7 @@ object GraphLayoutService {
         var nextFileId = 1
         val filePathToSimpleId = mutableMapOf<String, Int>()
         var nextSnapshotSimpleId = 1
+        var nextManifestSimpleId = 1
 
         fun normalizeFilePath(path: String): String {
             val trimmed = path.trim()
@@ -169,8 +170,9 @@ object GraphLayoutService {
                     val rawManPath = manifest.manifestPath ?: "unknown_${UUID.randomUUID()}"
                     val manId = "man_${rawManPath.hashCode()}"
                     if (!elkNodes.containsKey(manId)) {
+                        val simpleManifestId = nextManifestSimpleId++
                         elkNodes[manId] = createElkNode(root, manId, 200.0, 80.0)
-                        logicalNodes[manId] = GraphNode.ManifestNode(manId, manifest)
+                        logicalNodes[manId] = GraphNode.ManifestNode(manId, manifest, simpleManifestId)
                     }
 
                     val manEdgeId = "e_man_${sId}_to_$manId"

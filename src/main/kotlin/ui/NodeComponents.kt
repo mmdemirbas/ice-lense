@@ -21,6 +21,9 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
+private fun metadataCardId(fileName: String): String =
+    fileName.removePrefix("v").removeSuffix(".metadata.json").toIntOrNull()?.toString() ?: "?"
+
 fun getGraphNodeColor(node: GraphNode): Color = when (node) {
     is GraphNode.TableNode    -> Color(0xFFFFF3E0)
     is GraphNode.MetadataNode -> Color(0xFFE1BEE7)
@@ -240,6 +243,7 @@ fun TableCard(node: GraphNode.TableNode, isSelected: Boolean = false) {
 fun MetadataCard(node: GraphNode.MetadataNode, isSelected: Boolean = false) {
     val borderWidth = if (isSelected) 4.dp else 2.dp
     val borderColor = if (isSelected) Color.Black else getGraphNodeBorderColor(node)
+    val metadataId = metadataCardId(node.fileName)
     Box(
         modifier = Modifier
         .size(node.width.dp, node.height.dp)
@@ -248,7 +252,7 @@ fun MetadataCard(node: GraphNode.MetadataNode, isSelected: Boolean = false) {
         .padding(8.dp)) {
         Column {
             Text(
-                "METADATA FILE",
+                "METADATA $metadataId",
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.DarkGray
@@ -283,6 +287,7 @@ fun ManifestCard(node: GraphNode.ManifestNode, isSelected: Boolean = false) {
     val color = if (node.data.content == 1) Color(0xFFFFCDD2) else Color(0xFFC8E6C9)
     val borderColor = if (isSelected) Color.Black else (if (node.data.content == 1) Color(0xFFD32F2F) else Color(0xFF388E3C))
     val borderWidth = if (isSelected) 4.dp else 2.dp
+    val contentLabel = if (node.data.content == 1) "DELETE" else "DATA"
 
     Box(
         modifier = Modifier
@@ -292,7 +297,7 @@ fun ManifestCard(node: GraphNode.ManifestNode, isSelected: Boolean = false) {
         .padding(8.dp)) {
         Column {
             Text(
-                if (node.data.content == 1) "DELETE MANIFEST" else "DATA MANIFEST",
+                "MANIFEST ${node.simpleId}: $contentLabel",
                 fontSize = 9.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -305,9 +310,9 @@ fun ManifestCard(node: GraphNode.ManifestNode, isSelected: Boolean = false) {
 fun FileCard(node: GraphNode.FileNode, isSelected: Boolean = false) {
     val content = node.data.content ?: 0
     val label = when (content) {
-        1    -> "POS DELETE ${node.simpleId}"
-        2    -> "EQ DELETE ${node.simpleId}"
-        else -> "DATA FILE ${node.simpleId}"
+        1    -> "FILE ${node.simpleId}: POS DELETE"
+        2    -> "FILE ${node.simpleId}: EQ DELETE"
+        else -> "FILE ${node.simpleId}: DATA"
     }
     val borderWidth = if (isSelected) 3.dp else 1.dp
     val borderColor = if (isSelected) Color.Black else getGraphNodeBorderColor(node)
