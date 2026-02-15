@@ -27,6 +27,7 @@ import model.MetadataLogEntry
 import model.SnapshotLogEntry
 
 private fun nodeTitle(node: GraphNode): String = when (node) {
+    is GraphNode.TableNode -> "Table ${node.summary.tableName}"
     is GraphNode.MetadataNode -> node.fileName
     is GraphNode.SnapshotNode -> "Snapshot ${node.simpleId}"
     is GraphNode.ManifestNode -> if (node.data.content == 1) "Delete Manifest" else "Data Manifest"
@@ -275,6 +276,134 @@ fun NodeDetailsContent(graphModel: GraphModel?, selectedNodeIds: Set<String>) {
                 Spacer(Modifier.height(8.dp))
 
                 when (node) {
+                    is GraphNode.TableNode -> {
+                        val summary = node.summary
+                        val metadataChildren = children
+                            .filterIsInstance<GraphNode.MetadataNode>()
+                            .sortedBy {
+                                it.fileName.removePrefix("v").removeSuffix(".metadata.json").toIntOrNull() ?: Int.MAX_VALUE
+                            }
+                        val metadataNodeByFileName = metadataChildren.associateBy { it.fileName }
+                        val versionFileNames = summary.metadataVersions.map { it.fileName }.toSet()
+                        val mergedMetadataRows = buildList {
+                            summary.metadataVersions.forEachIndexed { index, version ->
+                                val metadataNode = metadataNodeByFileName[version.fileName]
+                                add(
+                                    listOf(
+                                        "${index + 1}",
+                                        metadataNode?.id ?: "N/A",
+                                        version.fileName,
+                                        "${version.version ?: "N/A"}",
+                                        formatTimestamp(version.fileLastModifiedMs),
+                                        formatTimestamp(version.metadataLastUpdatedMs),
+                                        "${version.snapshotCount}",
+                                        currentSnapshotLabel(version.currentSnapshotId)
+                                    )
+                                )
+                            }
+                            metadataChildren
+                                .filter { it.fileName !in versionFileNames }
+                                .forEachIndexed { index, metadataNode ->
+                                    val fallbackVersion =
+                                        metadataNode.fileName.removePrefix("v").removeSuffix(".metadata.json").toIntOrNull()
+                                    add(
+                                        listOf(
+                                            "${summary.metadataVersions.size + index + 1}",
+                                            metadataNode.id,
+                                            metadataNode.fileName,
+                                            "${fallbackVersion ?: "N/A"}",
+                                            "N/A",
+                                            formatTimestamp(metadataNode.data.lastUpdatedMs),
+                                            "${metadataNode.data.snapshots.size}",
+                                            currentSnapshotLabel(metadataNode.data.currentSnapshotId)
+                                        )
+                                    )
+                                }
+                        }
+
+                        DetailTable {
+                            DetailRow("Property", "Value", isHeader = true)
+                            DetailRow("Name", summary.tableName)
+                            DetailRow("Table Path", summary.tablePath)
+                            DetailRow("Location", summary.location ?: "N/A")
+                            DetailRow("Table UUID", summary.tableUuid ?: "N/A")
+                            DetailRow("Format Version", "${summary.formatVersion ?: "N/A"}")
+                            DetailRow("Current Snapshot ID", currentSnapshotLabel(summary.currentSnapshotId))
+                            DetailRow("Current Metadata Version", "${summary.currentMetadataVersion ?: "N/A"}")
+                            DetailRow("version-hint.text", summary.versionHintText.ifBlank { "N/A" })
+                            DetailRow("Table Created (Inferred)", formatTimestamp(summary.tableCreationMs))
+                            DetailRow("Table Last Updated (Inferred)", formatTimestamp(summary.tableLastUpdateMs))
+                            DetailRow("Last Updated (UI)", formatTimestamp(summary.lastUpdatedMs))
+                        }
+
+                        Spacer(Modifier.height(16.dp))
+                        SectionTitle("Metadata Files")
+                        DetailTable {
+                            DetailRow("Metric", "Value", isHeader = true)
+                            DetailRow("File Count", "${summary.metadataFileCount}")
+                            DetailRow("Known", "${summary.metadataFileTimes.knownCount}")
+                            DetailRow("Missing", "${summary.metadataFileTimes.missingCount}")
+                            DetailRow("Oldest", formatTimestamp(summary.metadataFileTimes.oldestMs))
+                            DetailRow("Latest", formatTimestamp(summary.metadataFileTimes.newestMs))
+                        }
+
+                        Spacer(Modifier.height(16.dp))
+                        SectionTitle("Snapshot Manifest Lists")
+                        DetailTable {
+                            DetailRow("Metric", "Value", isHeader = true)
+                            DetailRow("Unique Snapshots", "${summary.snapshotCount}")
+                            DetailRow("File Count", "${summary.snapshotManifestListFileCount}")
+                            DetailRow("Known", "${summary.snapshotManifestListFileTimes.knownCount}")
+                            DetailRow("Missing", "${summary.snapshotManifestListFileTimes.missingCount}")
+                            DetailRow("Oldest", formatTimestamp(summary.snapshotManifestListFileTimes.oldestMs))
+                            DetailRow("Latest", formatTimestamp(summary.snapshotManifestListFileTimes.newestMs))
+                        }
+
+                        Spacer(Modifier.height(16.dp))
+                        SectionTitle("Manifest Files")
+                        DetailTable {
+                            DetailRow("Metric", "Value", isHeader = true)
+                            DetailRow("File Count", "${summary.manifestCount}")
+                            DetailRow("Known", "${summary.manifestFileTimes.knownCount}")
+                            DetailRow("Missing", "${summary.manifestFileTimes.missingCount}")
+                            DetailRow("Breakdown", "${summary.dataManifestCount} data / ${summary.deleteManifestCount} delete")
+                            DetailRow("Oldest", formatTimestamp(summary.manifestFileTimes.oldestMs))
+                            DetailRow("Latest", formatTimestamp(summary.manifestFileTimes.newestMs))
+                            DetailRow("Manifest Entries", "${summary.manifestEntryCount}")
+                        }
+
+                        Spacer(Modifier.height(16.dp))
+                        SectionTitle("Data Files")
+                        DetailTable {
+                            DetailRow("Metric", "Value", isHeader = true)
+                            DetailRow("File Count", "${summary.uniqueDataFileCount}")
+                            DetailRow("Known", "${summary.dataFileTimes.knownCount}")
+                            DetailRow("Missing", "${summary.dataFileTimes.missingCount}")
+                            DetailRow("Breakdown", "${summary.dataFileCount} data / ${summary.posDeleteFileCount} pos-del / ${summary.eqDeleteFileCount} eq-del")
+                            DetailRow("Oldest", formatTimestamp(summary.dataFileTimes.oldestMs))
+                            DetailRow("Latest", formatTimestamp(summary.dataFileTimes.newestMs))
+                            DetailRow("Total Records", "${summary.totalRecordCount}")
+                        }
+
+                        if (mergedMetadataRows.isNotEmpty()) {
+                            Spacer(Modifier.height(16.dp))
+                            SectionTitle("Metadata Nodes & Timeline")
+                            WideTable(
+                                headers = listOf(
+                                    "Order",
+                                    "Node",
+                                    "File",
+                                    "Version",
+                                    "File Updated",
+                                    "Metadata Last Updated",
+                                    "Snapshots",
+                                    "Current Snapshot ID"
+                                ),
+                                rows = mergedMetadataRows
+                            )
+                        }
+                    }
+
                     is GraphNode.MetadataNode -> {
                         DetailTable {
                             DetailRow("Property", "Value", isHeader = true)

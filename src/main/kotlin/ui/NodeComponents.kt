@@ -22,6 +22,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 fun getGraphNodeColor(node: GraphNode): Color = when (node) {
+    is GraphNode.TableNode    -> Color(0xFFFFF3E0)
     is GraphNode.MetadataNode -> Color(0xFFE1BEE7)
     is GraphNode.SnapshotNode -> Color(0xFFBBDEFB)
     is GraphNode.ManifestNode -> when (node.data.content) {
@@ -43,6 +44,7 @@ fun getGraphNodeColor(node: GraphNode): Color = when (node) {
 }
 
 fun getGraphNodeBorderColor(node: GraphNode): Color = when (node) {
+    is GraphNode.TableNode    -> Color(0xFFEF6C00)
     is GraphNode.MetadataNode -> Color(0xFF8E24AA)
     is GraphNode.SnapshotNode -> Color(0xFF1976D2)
     is GraphNode.ManifestNode -> when (node.data.content) {
@@ -140,6 +142,7 @@ fun NodeTooltip(node: GraphNode) {
             .defaultMinSize(minWidth = 250.dp)
     ) {
         val title = when (node) {
+            is GraphNode.TableNode -> "Table"
             is GraphNode.MetadataNode -> "Metadata File"
             is GraphNode.SnapshotNode -> "Snapshot"
             is GraphNode.ManifestNode -> if (node.data.content == 1) "Delete Manifest" else "Data Manifest"
@@ -165,6 +168,13 @@ fun NodeTooltip(node: GraphNode) {
         
         DetailTable {
             when (node) {
+                is GraphNode.TableNode -> {
+                    DetailRow("Name", node.summary.tableName, isDark = true)
+                    DetailRow("Metadata", "${node.summary.metadataFileCount}", isDark = true)
+                    DetailRow("Snapshots", "${node.summary.snapshotCount}", isDark = true)
+                    DetailRow("Manifests", "${node.summary.manifestCount}", isDark = true)
+                    DetailRow("Data Files", "${node.summary.manifestEntryCount}", isDark = true)
+                }
                 is GraphNode.MetadataNode -> {
                     DetailRow("File", node.fileName, isDark = true)
                     DetailRow("Version", "${node.data.formatVersion}", isDark = true)
@@ -196,6 +206,32 @@ fun NodeTooltip(node: GraphNode) {
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun TableCard(node: GraphNode.TableNode, isSelected: Boolean = false) {
+    val borderWidth = if (isSelected) 4.dp else 2.dp
+    val borderColor = if (isSelected) Color.Black else getGraphNodeBorderColor(node)
+    Box(
+        modifier = Modifier
+            .size(node.width.dp, node.height.dp)
+            .background(getGraphNodeColor(node), RoundedCornerShape(10.dp))
+            .border(BorderStroke(borderWidth, borderColor), RoundedCornerShape(10.dp))
+            .padding(8.dp)
+    ) {
+        Column {
+            Text(
+                "TABLE",
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.DarkGray
+            )
+            Text(node.summary.tableName, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("Metadata: ${node.summary.metadataFileCount}", fontSize = 11.sp)
+            Text("Snapshots: ${node.summary.snapshotCount}", fontSize = 11.sp)
+            Text("Current Version: ${node.summary.currentMetadataVersion ?: "N/A"}", fontSize = 10.sp)
         }
     }
 }

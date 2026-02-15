@@ -511,6 +511,7 @@ fun GraphCanvas(
                         ) {
                             val isActive = hoveredNodeId == node.id || selectedNodeIds.contains(node.id)
                             when (node) {
+                                is GraphNode.TableNode    -> TableCard(node, isSelected = isActive)
                                 is GraphNode.MetadataNode -> MetadataCard(node, isSelected = isActive)
                                 is GraphNode.SnapshotNode -> SnapshotCard(node, isSelected = isActive)
                                 is GraphNode.ManifestNode -> ManifestCard(node, isSelected = isActive)

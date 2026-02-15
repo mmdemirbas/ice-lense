@@ -14,6 +14,8 @@ import org.eclipse.elk.graph.ElkNode
 import org.eclipse.elk.graph.util.ElkGraphUtil
 import java.io.File
 import java.net.URI
+import java.nio.file.Files
+import java.nio.file.Path
 import java.util.*
 
 object GraphLayoutService {
@@ -42,6 +44,11 @@ object GraphLayoutService {
         val logicalNodes = mutableMapOf<String, GraphNode>()
         val edges = mutableListOf<GraphEdge>()
         val processedManifests = mutableSetOf<String>()
+        val tableNodeId = "table_root"
+
+        val tableSummary = buildTableSummary(tableModel)
+        elkNodes[tableNodeId] = createElkNode(root, tableNodeId, 300.0, 120.0)
+        logicalNodes[tableNodeId] = GraphNode.TableNode(tableNodeId, tableSummary)
 
         // Registry to map long Iceberg paths to simple IDs
         var nextFileId = 1
@@ -121,6 +128,11 @@ object GraphLayoutService {
             if (!elkNodes.containsKey(mId)) {
                 elkNodes[mId] = createElkNode(root, mId, 240.0, 96.0)
                 logicalNodes[mId] = GraphNode.MetadataNode(mId, fileName, meta, metadata.rawJson)
+            }
+            val tableEdgeId = "e_table_${tableNodeId}_to_$mId"
+            if (edges.none { it.id == tableEdgeId }) {
+                ElkGraphUtil.createSimpleEdge(elkNodes[tableNodeId], elkNodes[mId])
+                edges.add(GraphEdge(tableEdgeId, tableNodeId, mId))
             }
 
             val sortedSnapshots = metadata.snapshots.sortedWith(
@@ -460,6 +472,185 @@ object GraphLayoutService {
                 rowNode.y = currentY
             }
         }
+    }
+
+    private class FileTimeAccumulator {
+        private var knownCount: Int = 0
+        private var missingCount: Int = 0
+        private var oldestMs: Long? = null
+        private var newestMs: Long? = null
+
+        fun add(timestampMs: Long?) {
+            if (timestampMs == null) {
+                missingCount++
+                return
+            }
+            knownCount++
+            oldestMs = if (oldestMs == null) timestampMs else minOf(oldestMs!!, timestampMs)
+            newestMs = if (newestMs == null) timestampMs else maxOf(newestMs!!, timestampMs)
+        }
+
+        fun asRange(): FileTimeRange = FileTimeRange(
+            knownCount = knownCount,
+            missingCount = missingCount,
+            oldestMs = oldestMs,
+            newestMs = newestMs
+        )
+    }
+
+    private fun metadataVersionFromFileName(fileName: String): Int? =
+        fileName.removePrefix("v").removeSuffix(".metadata.json").toIntOrNull()
+
+    private fun normalizedPath(path: String): String {
+        val trimmed = path.trim()
+        if (trimmed.isEmpty()) return trimmed
+        val normalized = if (trimmed.startsWith("file:")) {
+            runCatching { URI(trimmed).path }.getOrDefault(trimmed.removePrefix("file:"))
+        } else {
+            trimmed
+        }
+        return normalized.replace("\\", "/")
+    }
+
+    private fun fileLastModifiedMs(path: Path, cache: MutableMap<String, Long?>): Long? {
+        val key = runCatching { path.toAbsolutePath().normalize().toString() }.getOrElse { path.toString() }
+        return cache.getOrPut(key) {
+            runCatching { Files.getLastModifiedTime(path).toMillis() }.getOrNull()
+        }
+    }
+
+    private fun buildTableSummary(tableModel: UnifiedTableModel): TableSummary {
+        val mtimeCache = mutableMapOf<String, Long?>()
+        val metadataTimes = FileTimeAccumulator()
+        val snapshotManifestListTimes = FileTimeAccumulator()
+        val manifestTimes = FileTimeAccumulator()
+        val dataFileTimes = FileTimeAccumulator()
+
+        val uniqueSnapshotKeys = mutableSetOf<String>()
+        val uniqueSnapshotManifestListKeys = mutableSetOf<String>()
+        val uniqueManifestKeys = mutableSetOf<String>()
+        val uniqueDataFileKeys = mutableSetOf<String>()
+
+        var dataManifestCount = 0
+        var deleteManifestCount = 0
+        var manifestEntryCount = 0
+        var dataFileCount = 0
+        var posDeleteFileCount = 0
+        var eqDeleteFileCount = 0
+        var totalRecordCount = 0L
+
+        val metadataVersions = tableModel.metadatas.map { unifiedMetadata ->
+            val fileName = unifiedMetadata.path.fileName.toString()
+            val fileModifiedMs = fileLastModifiedMs(unifiedMetadata.path, mtimeCache)
+            metadataTimes.add(fileModifiedMs)
+            MetadataVersionInfo(
+                fileName = fileName,
+                version = metadataVersionFromFileName(fileName),
+                fileLastModifiedMs = fileModifiedMs,
+                metadataLastUpdatedMs = unifiedMetadata.metadata.lastUpdatedMs,
+                snapshotCount = unifiedMetadata.metadata.snapshots.size,
+                currentSnapshotId = unifiedMetadata.metadata.currentSnapshotId
+            )
+        }
+
+        val inferredTimelineMs = metadataVersions
+            .mapNotNull { version -> version.metadataLastUpdatedMs ?: version.fileLastModifiedMs }
+        val inferredTableCreationMs = inferredTimelineMs.minOrNull()
+        val inferredTableLastUpdateMs = inferredTimelineMs.maxOrNull()
+
+        tableModel.metadatas.forEach { unifiedMetadata ->
+            unifiedMetadata.snapshots.forEach { unifiedSnapshot ->
+                val snapshotMeta = unifiedSnapshot.metadata
+                val snapshotKey = snapshotMeta.snapshotId?.toString() ?: "path:${unifiedSnapshot.path}"
+                uniqueSnapshotKeys.add(snapshotKey)
+                val snapshotManifestListKey = snapshotMeta.manifestList
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let(::normalizedPath)
+                    ?: "path:${unifiedSnapshot.path}"
+                if (uniqueSnapshotManifestListKeys.add(snapshotManifestListKey)) {
+                    snapshotManifestListTimes.add(fileLastModifiedMs(unifiedSnapshot.path, mtimeCache))
+                }
+
+                unifiedSnapshot.manifestLists.forEach { unifiedManifest ->
+                    val manifestMeta = unifiedManifest.metadata
+                    val manifestKey = manifestMeta.manifestPath
+                        ?.takeIf { it.isNotBlank() }
+                        ?: "path:${unifiedManifest.path}"
+
+                    if (uniqueManifestKeys.add(manifestKey)) {
+                        if (manifestMeta.content == 1) {
+                            deleteManifestCount++
+                        } else {
+                            dataManifestCount++
+                        }
+                        manifestTimes.add(fileLastModifiedMs(unifiedManifest.path, mtimeCache))
+                    }
+
+                    unifiedManifest.manifests.forEach { unifiedDataFile ->
+                        val entry = unifiedDataFile.metadata
+                        val dataFile = entry.dataFile
+
+                        manifestEntryCount++
+                        when (dataFile?.content ?: 0) {
+                            1 -> posDeleteFileCount++
+                            2 -> eqDeleteFileCount++
+                            else -> dataFileCount++
+                        }
+                        totalRecordCount += dataFile?.recordCount ?: 0L
+
+                        val dataFileKey = dataFile?.filePath
+                            ?.takeIf { it.isNotBlank() }
+                            ?.let(::normalizedPath)
+                            ?: "path:${unifiedDataFile.path}"
+                        if (uniqueDataFileKeys.add(dataFileKey)) {
+                            dataFileTimes.add(fileLastModifiedMs(unifiedDataFile.path, mtimeCache))
+                        }
+                    }
+                }
+            }
+        }
+
+        val latestMetadataInfo = tableModel.metadatas.lastOrNull()
+        val latestMetadata = latestMetadataInfo?.metadata
+        val latestMetadataFileName = latestMetadataInfo?.path?.fileName?.toString().orEmpty()
+        val currentMetadataVersion = metadataVersionFromFileName(latestMetadataFileName)
+        val latestLastUpdatedMs = latestMetadata?.lastUpdatedMs
+            ?: tableModel.metadatas.mapNotNull { it.metadata.lastUpdatedMs }.maxOrNull()
+            ?: inferredTableLastUpdateMs
+
+        val location = latestMetadata?.location
+            ?: tableModel.metadatas.asReversed().firstNotNullOfOrNull { it.metadata.location }
+
+        return TableSummary(
+            tableName = tableModel.name,
+            tablePath = tableModel.path.toString(),
+            location = location,
+            tableUuid = latestMetadata?.tableUuid,
+            formatVersion = latestMetadata?.formatVersion,
+            currentSnapshotId = latestMetadata?.currentSnapshotId,
+            currentMetadataVersion = currentMetadataVersion,
+            versionHintText = tableModel.versionHint,
+            tableCreationMs = inferredTableCreationMs,
+            tableLastUpdateMs = inferredTableLastUpdateMs,
+            lastUpdatedMs = latestLastUpdatedMs,
+            metadataFileCount = tableModel.metadatas.size,
+            snapshotCount = uniqueSnapshotKeys.size,
+            snapshotManifestListFileCount = uniqueSnapshotManifestListKeys.size,
+            manifestCount = uniqueManifestKeys.size,
+            dataManifestCount = dataManifestCount,
+            deleteManifestCount = deleteManifestCount,
+            manifestEntryCount = manifestEntryCount,
+            uniqueDataFileCount = uniqueDataFileKeys.size,
+            dataFileCount = dataFileCount,
+            posDeleteFileCount = posDeleteFileCount,
+            eqDeleteFileCount = eqDeleteFileCount,
+            totalRecordCount = totalRecordCount,
+            metadataFileTimes = metadataTimes.asRange(),
+            snapshotManifestListFileTimes = snapshotManifestListTimes.asRange(),
+            manifestFileTimes = manifestTimes.asRange(),
+            dataFileTimes = dataFileTimes.asRange(),
+            metadataVersions = metadataVersions
+        )
     }
 
     private fun contentRank(content: Int?): Int = when (content ?: 0) {

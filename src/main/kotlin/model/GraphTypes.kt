@@ -12,6 +12,53 @@ data class GraphModel(
     val height: Double,
 )
 
+data class FileTimeRange(
+    val knownCount: Int = 0,
+    val missingCount: Int = 0,
+    val oldestMs: Long? = null,
+    val newestMs: Long? = null,
+)
+
+data class MetadataVersionInfo(
+    val fileName: String,
+    val version: Int?,
+    val fileLastModifiedMs: Long?,
+    val metadataLastUpdatedMs: Long?,
+    val snapshotCount: Int,
+    val currentSnapshotId: Long?,
+)
+
+data class TableSummary(
+    val tableName: String,
+    val tablePath: String,
+    val location: String?,
+    val tableUuid: String?,
+    val formatVersion: Int?,
+    val currentSnapshotId: Long?,
+    val currentMetadataVersion: Int?,
+    val versionHintText: String,
+    val tableCreationMs: Long?,
+    val tableLastUpdateMs: Long?,
+    val lastUpdatedMs: Long?,
+    val metadataFileCount: Int,
+    val snapshotCount: Int,
+    val snapshotManifestListFileCount: Int,
+    val manifestCount: Int,
+    val dataManifestCount: Int,
+    val deleteManifestCount: Int,
+    val manifestEntryCount: Int,
+    val uniqueDataFileCount: Int,
+    val dataFileCount: Int,
+    val posDeleteFileCount: Int,
+    val eqDeleteFileCount: Int,
+    val totalRecordCount: Long,
+    val metadataFileTimes: FileTimeRange,
+    val snapshotManifestListFileTimes: FileTimeRange,
+    val manifestFileTimes: FileTimeRange,
+    val dataFileTimes: FileTimeRange,
+    val metadataVersions: List<MetadataVersionInfo> = emptyList(),
+)
+
 sealed class GraphNode(
     open val id: String,
     initialX: Double,
@@ -21,6 +68,13 @@ sealed class GraphNode(
 ) {
     var x by mutableStateOf(initialX)
     var y by mutableStateOf(initialY)
+
+    data class TableNode(
+        override val id: String,
+        val summary: TableSummary,
+        val initialX: Double = 0.0,
+        val initialY: Double = 0.0,
+    ) : GraphNode(id, initialX, initialY, 300.0, 120.0)
 
     data class MetadataNode(
         override val id: String,
