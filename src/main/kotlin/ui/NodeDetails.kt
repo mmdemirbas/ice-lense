@@ -11,6 +11,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -21,6 +23,8 @@ import model.GraphModel
 import model.GraphNode
 import model.KeyValuePairBytes
 import model.KeyValuePairLong
+import model.MetadataLogEntry
+import model.SnapshotLogEntry
 
 private fun nodeTitle(node: GraphNode): String = when (node) {
     is GraphNode.MetadataNode -> node.fileName
@@ -64,10 +68,71 @@ private fun currentSnapshotLabel(currentSnapshotId: Long?): String = when (curre
 }
 
 private fun timelineContentRank(content: Int?): Int = when (content ?: 0) {
-    2 -> 0
-    0 -> 1
-    1 -> 2
+    0 -> 0
+    1 -> 1
+    2 -> 2
     else -> 3
+}
+
+private fun jsonToAnnotatedString(json: String): AnnotatedString {
+    val stringStyle = SpanStyle(color = Color(0xFF2E7D32))
+    val numberStyle = SpanStyle(color = Color(0xFF1565C0))
+    val keywordStyle = SpanStyle(color = Color(0xFF8E24AA), fontWeight = FontWeight.SemiBold)
+    val punctStyle = SpanStyle(color = Color(0xFF616161))
+    val builder = AnnotatedString.Builder()
+
+    var i = 0
+    while (i < json.length) {
+        val ch = json[i]
+        when {
+            ch == '"' -> {
+                var j = i + 1
+                var escaped = false
+                while (j < json.length) {
+                    val c = json[j]
+                    if (c == '"' && !escaped) break
+                    escaped = c == '\\' && !escaped
+                    if (c != '\\') escaped = false
+                    j++
+                }
+                val end = (j + 1).coerceAtMost(json.length)
+                builder.pushStyle(stringStyle)
+                builder.append(json.substring(i, end))
+                builder.pop()
+                i = end
+            }
+            ch == '-' || ch.isDigit() -> {
+                var j = i + 1
+                while (j < json.length && (json[j].isDigit() || json[j] in listOf('.', 'e', 'E', '+', '-'))) j++
+                builder.pushStyle(numberStyle)
+                builder.append(json.substring(i, j))
+                builder.pop()
+                i = j
+            }
+            json.startsWith("true", i) || json.startsWith("false", i) || json.startsWith("null", i) -> {
+                val token = when {
+                    json.startsWith("true", i) -> "true"
+                    json.startsWith("false", i) -> "false"
+                    else -> "null"
+                }
+                builder.pushStyle(keywordStyle)
+                builder.append(token)
+                builder.pop()
+                i += token.length
+            }
+            ch in listOf('{', '}', '[', ']', ':', ',') -> {
+                builder.pushStyle(punctStyle)
+                builder.append(ch)
+                builder.pop()
+                i++
+            }
+            else -> {
+                builder.append(ch)
+                i++
+            }
+        }
+    }
+    return builder.toAnnotatedString()
 }
 
 private fun childNodes(node: GraphNode, graphModel: GraphModel): List<GraphNode> {
@@ -144,6 +209,22 @@ private fun WideTableRow(cells: List<String>, columns: Int, columnWidth: Dp, isH
     HorizontalDivider(color = Color(0xFFE0E0E0), thickness = 0.5.dp)
 }
 
+private fun renderSnapshotLogRows(items: List<SnapshotLogEntry>): List<List<String>> =
+    items.sortedBy { it.timestampMs ?: Long.MAX_VALUE }.map { entry ->
+        listOf(
+            formatTimestamp(entry.timestampMs),
+            "${entry.snapshotId ?: "N/A"}"
+        )
+    }
+
+private fun renderMetadataLogRows(items: List<MetadataLogEntry>): List<List<String>> =
+    items.sortedBy { it.timestampMs ?: Long.MAX_VALUE }.map { entry ->
+        listOf(
+            formatTimestamp(entry.timestampMs),
+            normalizeText(entry.metadataFile)
+        )
+    }
+
 @Composable
 fun NodeDetailsContent(graphModel: GraphModel?, selectedNodeIds: Set<String>) {
     SelectionContainer {
@@ -195,9 +276,20 @@ fun NodeDetailsContent(graphModel: GraphModel?, selectedNodeIds: Set<String>) {
                             DetailRow("Last Seq. Num.", "${node.data.lastSequenceNumber ?: "N/A"}")
                             DetailRow("Last Updated", formatTimestamp(node.data.lastUpdatedMs))
                             DetailRow("Last Column ID", "${node.data.lastColumnId ?: "N/A"}")
+                            DetailRow("Current Schema ID", "${node.data.currentSchemaId ?: "N/A"}")
+                            DetailRow("Default Spec ID", "${node.data.defaultSpecId ?: "N/A"}")
+                            DetailRow("Last Partition ID", "${node.data.lastPartitionId ?: "N/A"}")
+                            DetailRow("Default Sort Order ID", "${node.data.defaultSortOrderId ?: "N/A"}")
                             DetailRow("Current Snapshot ID", currentSnapshotLabel(node.data.currentSnapshotId))
                             DetailRow("Total Snapshots", "${node.data.snapshots.size}")
                             DetailRow("Total Schemas", "${node.data.schemas.size}")
+                            DetailRow("Total Partition Specs", "${node.data.partitionSpecs.size}")
+                            DetailRow("Total Sort Orders", "${node.data.sortOrders.size}")
+                            DetailRow("Total Refs", "${node.data.refs.size}")
+                            DetailRow("Statistics Entries", "${node.data.statistics.size}")
+                            DetailRow("Partition Statistics Entries", "${node.data.partitionStatistics.size}")
+                            DetailRow("Snapshot Log Entries", "${node.data.snapshotLog.size}")
+                            DetailRow("Metadata Log Entries", "${node.data.metadataLog.size}")
                         }
 
                         if (node.data.properties.isNotEmpty()) {
@@ -248,6 +340,78 @@ fun NodeDetailsContent(graphModel: GraphModel?, selectedNodeIds: Set<String>) {
                                 }
                         }
 
+                        if (node.data.partitionSpecs.isNotEmpty()) {
+                            Spacer(Modifier.height(16.dp))
+                            SectionTitle("Partition Specs")
+                            node.data.partitionSpecs
+                                .sortedBy { it.specId ?: Int.MAX_VALUE }
+                                .forEach { spec ->
+                                    Text(
+                                        "Spec ${spec.specId ?: "Unknown"}",
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 13.sp
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+                                    WideTable(
+                                        headers = listOf("Source ID", "Field ID", "Name", "Transform"),
+                                        rows = if (spec.fields.isEmpty()) listOf(listOf("N/A", "N/A", "N/A", "N/A")) else spec.fields.map { field ->
+                                            listOf(
+                                                "${field.sourceId ?: "N/A"}",
+                                                "${field.fieldId ?: "N/A"}",
+                                                field.name ?: "N/A",
+                                                normalizeText(field.transform?.toString())
+                                            )
+                                        }
+                                    )
+                                    Spacer(Modifier.height(12.dp))
+                                }
+                        }
+
+                        if (node.data.sortOrders.isNotEmpty()) {
+                            Spacer(Modifier.height(16.dp))
+                            SectionTitle("Sort Orders")
+                            node.data.sortOrders
+                                .sortedBy { it.orderId ?: Int.MAX_VALUE }
+                                .forEach { order ->
+                                    Text(
+                                        "Order ${order.orderId ?: "Unknown"}",
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 13.sp
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+                                    WideTable(
+                                        headers = listOf("Source ID", "Transform", "Direction", "Null Order"),
+                                        rows = if (order.fields.isEmpty()) listOf(listOf("N/A", "N/A", "N/A", "N/A")) else order.fields.map { field ->
+                                            listOf(
+                                                "${field.sourceId ?: "N/A"}",
+                                                normalizeText(field.transform?.toString()),
+                                                field.direction ?: "N/A",
+                                                field.nullOrder ?: "N/A"
+                                            )
+                                        }
+                                    )
+                                    Spacer(Modifier.height(12.dp))
+                                }
+                        }
+
+                        if (node.data.refs.isNotEmpty()) {
+                            Spacer(Modifier.height(16.dp))
+                            SectionTitle("Refs")
+                            WideTable(
+                                headers = listOf("Name", "Type", "Snapshot ID", "Max Ref Age MS", "Max Snapshot Age MS", "Min Snapshots To Keep"),
+                                rows = node.data.refs.toSortedMap().map { (name, ref) ->
+                                    listOf(
+                                        name,
+                                        ref.type ?: "N/A",
+                                        "${ref.snapshotId ?: "N/A"}",
+                                        "${ref.maxRefAgeMs ?: "N/A"}",
+                                        "${ref.maxSnapshotAgeMs ?: "N/A"}",
+                                        "${ref.minSnapshotsToKeep ?: "N/A"}"
+                                    )
+                                }
+                            )
+                        }
+
                         if (node.data.snapshots.isNotEmpty()) {
                             Spacer(Modifier.height(16.dp))
                             SectionTitle("Snapshots")
@@ -277,6 +441,79 @@ fun NodeDetailsContent(graphModel: GraphModel?, selectedNodeIds: Set<String>) {
                                     )
                                 }
                             )
+                        }
+
+                        if (node.data.snapshotLog.isNotEmpty()) {
+                            Spacer(Modifier.height(16.dp))
+                            SectionTitle("Snapshot Log")
+                            DetailTable {
+                                DetailRow("Timestamp", "Snapshot ID", isHeader = true)
+                                renderSnapshotLogRows(node.data.snapshotLog).forEach { row ->
+                                    DetailRow(row.getOrElse(0) { "N/A" }, row.getOrElse(1) { "N/A" })
+                                }
+                            }
+                        }
+
+                        if (node.data.metadataLog.isNotEmpty()) {
+                            Spacer(Modifier.height(16.dp))
+                            SectionTitle("Metadata Log")
+                            DetailTable {
+                                DetailRow("Timestamp", "Metadata File", isHeader = true)
+                                renderMetadataLogRows(node.data.metadataLog).forEach { row ->
+                                    DetailRow(row.getOrElse(0) { "N/A" }, row.getOrElse(1) { "N/A" })
+                                }
+                            }
+                        }
+
+                        if (node.data.statistics.isNotEmpty()) {
+                            Spacer(Modifier.height(16.dp))
+                            SectionTitle("Statistics")
+                            WideTable(
+                                headers = listOf("Index", "Value"),
+                                rows = node.data.statistics.mapIndexed { index, stat ->
+                                    listOf("${index + 1}", normalizeText(stat.toString()))
+                                }
+                            )
+                        }
+
+                        if (node.data.partitionStatistics.isNotEmpty()) {
+                            Spacer(Modifier.height(16.dp))
+                            SectionTitle("Partition Statistics")
+                            WideTable(
+                                headers = listOf("Index", "Value"),
+                                rows = node.data.partitionStatistics.mapIndexed { index, stat ->
+                                    listOf("${index + 1}", normalizeText(stat.toString()))
+                                }
+                            )
+                        }
+
+                        Spacer(Modifier.height(16.dp))
+                        SectionTitle("Raw metadata.json")
+                        val rawJson = node.rawJson
+                        if (!rawJson.isNullOrBlank()) {
+                            val rawJsonScrollX = rememberScrollState()
+                            val rawJsonScrollY = rememberScrollState()
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 220.dp, max = 420.dp)
+                                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
+                                    .border(1.dp, Color.LightGray, androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
+                                    .background(Color(0xFFFAFAFA))
+                                    .horizontalScroll(rawJsonScrollX)
+                                    .verticalScroll(rawJsonScrollY)
+                                    .padding(8.dp)
+                            ) {
+                                Text(
+                                    text = jsonToAnnotatedString(rawJson),
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        } else {
+                            DetailTable {
+                                DetailRow("Raw JSON", "N/A", isHeader = true)
+                            }
                         }
                     }
 

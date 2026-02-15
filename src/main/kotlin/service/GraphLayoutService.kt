@@ -56,7 +56,7 @@ object GraphLayoutService {
             val mId = "meta_${fileName}"
             if (!elkNodes.containsKey(mId)) {
                 elkNodes[mId] = createElkNode(root, mId, 260.0, 120.0)
-                logicalNodes[mId] = GraphNode.MetadataNode(mId, fileName, meta)
+                logicalNodes[mId] = GraphNode.MetadataNode(mId, fileName, meta, metadata.rawJson)
             }
 
             // Link consecutive metadata files

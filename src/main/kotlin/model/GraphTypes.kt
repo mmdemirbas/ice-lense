@@ -26,6 +26,7 @@ sealed class GraphNode(
         override val id: String,
         val fileName: String,
         val data: TableMetadata,
+        val rawJson: String? = null,
         val initialX: Double = 0.0,
         val initialY: Double = 0.0,
     ) : GraphNode(id, initialX, initialY, 260.0, 120.0)

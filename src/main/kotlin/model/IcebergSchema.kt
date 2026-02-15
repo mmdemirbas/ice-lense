@@ -13,10 +13,70 @@ data class TableMetadata(
     @SerialName("last-sequence-number") val lastSequenceNumber: Int? = null,
     @SerialName("last-updated-ms") val lastUpdatedMs: Long? = null,
     @SerialName("last-column-id") val lastColumnId: Int? = null,
+    @SerialName("current-schema-id") val currentSchemaId: Int? = null,
     @SerialName("current-snapshot-id") val currentSnapshotId: Long? = null,
+    @SerialName("default-spec-id") val defaultSpecId: Int? = null,
+    @SerialName("partition-specs") val partitionSpecs: List<PartitionSpec> = emptyList(),
+    @SerialName("last-partition-id") val lastPartitionId: Int? = null,
+    @SerialName("default-sort-order-id") val defaultSortOrderId: Int? = null,
+    @SerialName("sort-orders") val sortOrders: List<SortOrder> = emptyList(),
     val schemas: List<TableSchema> = emptyList(),
+    val refs: Map<String, SnapshotRef> = emptyMap(),
     val snapshots: List<Snapshot> = emptyList(),
+    val statistics: List<JsonElement> = emptyList(),
+    @SerialName("partition-statistics") val partitionStatistics: List<JsonElement> = emptyList(),
+    @SerialName("snapshot-log") val snapshotLog: List<SnapshotLogEntry> = emptyList(),
+    @SerialName("metadata-log") val metadataLog: List<MetadataLogEntry> = emptyList(),
     val properties: Map<String, String> = emptyMap(),
+)
+
+@Serializable
+data class PartitionSpec(
+    @SerialName("spec-id") val specId: Int? = null,
+    val fields: List<PartitionField> = emptyList(),
+)
+
+@Serializable
+data class PartitionField(
+    @SerialName("source-id") val sourceId: Int? = null,
+    @SerialName("field-id") val fieldId: Int? = null,
+    val name: String? = null,
+    val transform: JsonElement? = null,
+)
+
+@Serializable
+data class SortOrder(
+    @SerialName("order-id") val orderId: Int? = null,
+    val fields: List<SortField> = emptyList(),
+)
+
+@Serializable
+data class SortField(
+    @SerialName("source-id") val sourceId: Int? = null,
+    val transform: JsonElement? = null,
+    val direction: String? = null,
+    @SerialName("null-order") val nullOrder: String? = null,
+)
+
+@Serializable
+data class SnapshotRef(
+    @SerialName("snapshot-id") val snapshotId: Long? = null,
+    val type: String? = null,
+    @SerialName("max-ref-age-ms") val maxRefAgeMs: Long? = null,
+    @SerialName("max-snapshot-age-ms") val maxSnapshotAgeMs: Long? = null,
+    @SerialName("min-snapshots-to-keep") val minSnapshotsToKeep: Int? = null,
+)
+
+@Serializable
+data class SnapshotLogEntry(
+    @SerialName("timestamp-ms") val timestampMs: Long? = null,
+    @SerialName("snapshot-id") val snapshotId: Long? = null,
+)
+
+@Serializable
+data class MetadataLogEntry(
+    @SerialName("timestamp-ms") val timestampMs: Long? = null,
+    @SerialName("metadata-file") val metadataFile: String? = null,
 )
 
 @Serializable

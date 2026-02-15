@@ -49,6 +49,7 @@ fun UnifiedTableModel(tablePath: Path): UnifiedTableModel {
             UnifiedMetadata(
                 path = path,
                 metadata = metadata,
+                rawJson = runCatching { path.readText() }.getOrNull(),
                 snapshots = metadata.snapshots
                     .map { parsedSnapshots[it.snapshotId]!! }
                     .sortedBy { it.metadata.timestampMs },
@@ -111,6 +112,7 @@ data class UnifiedTableModel(
 data class UnifiedMetadata(
     val path: Path,
     val metadata: TableMetadata,
+    val rawJson: String? = null,
     val snapshots: List<UnifiedSnapshot>,
 )
 
