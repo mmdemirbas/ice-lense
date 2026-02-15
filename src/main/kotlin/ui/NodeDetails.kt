@@ -50,16 +50,19 @@ private fun normalizeText(value: String?): String {
         .replace("\t", "\\t")
 }
 
-private fun kvLongs(values: List<KeyValuePairLong>): String =
-    if (values.isEmpty()) "[]" else values.joinToString(", ") { "${it.key}:${it.value}" }
+private fun kvLongs(values: List<KeyValuePairLong>?): String =
+    if (values.isNullOrEmpty()) "[]" else values.joinToString(", ") { "${it.key}:${it.value}" }
 
 private fun ByteArray.toHexShort(maxBytes: Int = 24): String {
     val head = take(maxBytes).joinToString("") { byte -> "%02x".format(byte) }
     return if (size > maxBytes) "$head..." else head
 }
 
-private fun kvBytes(values: List<KeyValuePairBytes>): String =
-    if (values.isEmpty()) "[]" else values.joinToString(", ") { "${it.key}:${it.value.toHexShort()}" }
+private fun kvBytes(values: List<KeyValuePairBytes>?): String =
+    if (values.isNullOrEmpty()) "[]" else values.joinToString(", ") { "${it.key}:${it.value.toHexShort()}" }
+
+private fun longs(values: List<Long>?): String =
+    if (values.isNullOrEmpty()) "[]" else values.joinToString(", ")
 
 private fun currentSnapshotLabel(currentSnapshotId: Long?): String = when (currentSnapshotId) {
     null -> "None"
@@ -698,7 +701,7 @@ fun NodeDetailsContent(graphModel: GraphModel?, selectedNodeIds: Set<String>) {
                                         kvBytes(data.lowerBounds),
                                         kvBytes(data.upperBounds),
                                         data.keyMetadata?.toHexShort() ?: "N/A",
-                                        data.splitOffsets.joinToString(", "),
+                                        longs(data.splitOffsets),
                                         data.equalityIds?.joinToString(", ") ?: "N/A",
                                         "${data.sorderOrderId ?: "N/A"}"
                                     )
@@ -731,7 +734,7 @@ fun NodeDetailsContent(graphModel: GraphModel?, selectedNodeIds: Set<String>) {
                             DetailRow("Record Count", "${node.data.recordCount ?: 0}")
                             DetailRow("File Size", "${node.data.fileSizeInBytes ?: 0} bytes")
                             DetailRow("Sort Order ID", "${node.data.sorderOrderId ?: "N/A"}")
-                            DetailRow("Split Offsets", node.data.splitOffsets.joinToString(", "))
+                            DetailRow("Split Offsets", longs(node.data.splitOffsets))
                             DetailRow("Equality IDs", node.data.equalityIds?.joinToString(", ") ?: "N/A")
                             DetailRow("Partition", "N/A")
                             DetailRow("Column Sizes", kvLongs(node.data.columnSizes))
