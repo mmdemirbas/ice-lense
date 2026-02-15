@@ -50,6 +50,7 @@ private fun tonedEdgeColor(base: Color, sourceId: String): Color {
 fun GraphCanvas(
     graph: GraphModel,
     graphRevision: Int = 0,
+    fitGraphRequest: Int = 0,
     selectedNodeIds: Set<String>,
     isSelectMode: Boolean,
     zoom: Float,
@@ -342,6 +343,27 @@ fun GraphCanvas(
                 (minOffsetY + maxOffsetY) / 2f
             }
             return Offset(clampedX, clampedY)
+        }
+
+        LaunchedEffect(fitGraphRequest) {
+            if (fitGraphRequest <= 0) return@LaunchedEffect
+            val fitPadding = 56f
+            val availableWidth = (viewportWidth - fitPadding * 2f).coerceAtLeast(1f)
+            val availableHeight = (viewportHeight - fitPadding * 2f).coerceAtLeast(1f)
+            val fitZoomX = availableWidth / extents.width
+            val fitZoomY = availableHeight / extents.height
+            val fitZoom = min(fitZoomX, fitZoomY).coerceIn(0.1f, 3f)
+
+            val centerX = (extents.minX + extents.maxX) / 2f
+            val centerY = (extents.minY + extents.maxY) / 2f
+            val targetOffset = Offset(
+                x = viewportWidth / 2f - centerX * fitZoom,
+                y = viewportHeight / 2f - centerY * fitZoom
+            )
+
+            localZoom = fitZoom
+            onZoomChange(fitZoom)
+            offsetAnim.snapTo(clampOffset(targetOffset, fitZoom))
         }
 
         // After a relayout, immediately re-clamp viewport so redraw is coherent without extra interaction.

@@ -218,6 +218,7 @@ fun App() {
     var selectedTablePath by remember { mutableStateOf<String?>(null) }
     var graphModel by remember { mutableStateOf<GraphModel?>(null, neverEqualPolicy()) }
     var graphRevision by remember { mutableIntStateOf(0) }
+    var fitGraphRequest by remember { mutableIntStateOf(0) }
     var selectedNodeIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
     var workspaceExpandedPaths by remember {
@@ -750,8 +751,8 @@ fun App() {
                     )
                     Box(Modifier.width(1.dp).height(16.dp).background(Color(0xFFCCCCCC)))
                     ToolbarIconButton(
-                        icon = Icons.Default.FilterCenterFocus,
-                        tooltip = "Reset Zoom",
+                        icon = Icons.Default.ZoomOutMap,
+                        tooltip = "Original Size (100%)",
                         onClick = {
                             zoom = 1f
                             prefs.putFloat(PREF_ZOOM, zoom)
@@ -764,7 +765,16 @@ fun App() {
 
                 ToolbarGroup {
                     ToolbarIconButton(
-                        icon = Icons.Default.Refresh,
+                        icon = Icons.Default.FullscreenExit,
+                        tooltip = "Fit Graph",
+                        onClick = {
+                            if (graphModel != null) fitGraphRequest++
+                        },
+                        modifier = Modifier.size(32.dp)
+                    )
+                    Box(Modifier.width(1.dp).height(16.dp).background(Color(0xFFCCCCCC)))
+                    ToolbarIconButton(
+                        icon = Icons.Default.Schema,
                         tooltip = "Re-apply Layout",
                         onClick = { reapplyCurrentLayout() },
                         modifier = Modifier.size(32.dp)
@@ -868,6 +878,7 @@ fun App() {
                             GraphCanvas(
                                 graph = currentGraph,
                                 graphRevision = graphRevision,
+                                fitGraphRequest = fitGraphRequest,
                                 selectedNodeIds = selectedNodeIds,
                                 isSelectMode = isSelectMode,
                                 zoom = zoom,
