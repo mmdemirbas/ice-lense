@@ -25,7 +25,7 @@ private fun metadataCardId(fileName: String): String =
     fileName.removePrefix("v").removeSuffix(".metadata.json").toIntOrNull()?.toString() ?: "?"
 
 fun getGraphNodeColor(node: GraphNode): Color = when (node) {
-    is GraphNode.TableNode    -> Color(0xFFFFF3E0)
+    is GraphNode.TableNode    -> Color(0xFFD7CCC8)
     is GraphNode.MetadataNode -> Color(0xFFE1BEE7)
     is GraphNode.SnapshotNode -> Color(0xFFBBDEFB)
     is GraphNode.ManifestNode -> when (node.data.content) {
@@ -34,20 +34,20 @@ fun getGraphNodeColor(node: GraphNode): Color = when (node) {
     }
 
     is GraphNode.FileNode     -> when (node.data.content ?: 0) {
-        1    -> Color(0xFFFFCC80)
-        2    -> Color(0xFFEF9A9A)
-        else -> Color(0xFFE0F2F1)
+        1    -> Color(0xFFFFCDD2) // Position delete (same family as delete manifests)
+        2    -> Color(0xFFEF9A9A) // Equality delete (slightly deeper red)
+        else -> Color(0xFFC8E6C9) // Data (same as data manifests)
     }
 
     is GraphNode.RowNode      -> when (node.content) {
-        1    -> Color(0xFFFFCCBC) // Position Delete
-        2    -> Color(0xFFFFAB91) // Equality Delete
-        else -> Color(0xFFFFF9C4) // Data Row
+        1    -> Color(0xFFFFCDD2) // Position delete (same as position delete files)
+        2    -> Color(0xFFEF9A9A) // Equality delete (same as equality delete files)
+        else -> Color(0xFFC8E6C9) // Data (same as data manifests/files)
     }
 }
 
 fun getGraphNodeBorderColor(node: GraphNode): Color = when (node) {
-    is GraphNode.TableNode    -> Color(0xFFEF6C00)
+    is GraphNode.TableNode    -> Color(0xFF5D4037)
     is GraphNode.MetadataNode -> Color(0xFF8E24AA)
     is GraphNode.SnapshotNode -> Color(0xFF1976D2)
     is GraphNode.ManifestNode -> when (node.data.content) {
@@ -56,15 +56,15 @@ fun getGraphNodeBorderColor(node: GraphNode): Color = when (node) {
     }
 
     is GraphNode.FileNode     -> when (node.data.content ?: 0) {
-        1    -> Color(0xFFF57C00)
-        2    -> Color(0xFFD32F2F)
-        else -> Color(0xFF00897B)
+        1    -> Color(0xFFD32F2F) // Position delete
+        2    -> Color(0xFFC62828) // Equality delete (slight distinction)
+        else -> Color(0xFF388E3C) // Data
     }
 
     is GraphNode.RowNode      -> when (node.content) {
-        1    -> Color(0xFFE64A19) // Position Delete
-        2    -> Color(0xFFBF360C) // Equality Delete
-        else -> Color(0xFFFBC02D) // Data Row
+        1    -> Color(0xFFD32F2F) // Position delete
+        2    -> Color(0xFFC62828) // Equality delete
+        else -> Color(0xFF388E3C) // Data
     }
 }
 
@@ -284,8 +284,8 @@ fun SnapshotCard(node: GraphNode.SnapshotNode, isSelected: Boolean = false) {
 
 @Composable
 fun ManifestCard(node: GraphNode.ManifestNode, isSelected: Boolean = false) {
-    val color = if (node.data.content == 1) Color(0xFFFFCDD2) else Color(0xFFC8E6C9)
-    val borderColor = if (isSelected) Color.Black else (if (node.data.content == 1) Color(0xFFD32F2F) else Color(0xFF388E3C))
+    val color = getGraphNodeColor(node)
+    val borderColor = if (isSelected) Color.Black else getGraphNodeBorderColor(node)
     val borderWidth = if (isSelected) 4.dp else 2.dp
     val contentLabel = if (node.data.content == 1) "DELETE" else "DATA"
 
