@@ -68,10 +68,16 @@ private fun currentSnapshotLabel(currentSnapshotId: Long?): String = when (curre
 }
 
 private fun timelineContentRank(content: Int?): Int = when (content ?: 0) {
-    0 -> 0
-    1 -> 1
-    2 -> 2
+    2 -> 0
+    0 -> 1
+    1 -> 2
     else -> 3
+}
+
+private fun manifestContentRank(content: Int?): Int = when (content ?: 0) {
+    1 -> 0
+    0 -> 1
+    else -> 2
 }
 
 private fun jsonToAnnotatedString(json: String): AnnotatedString {
@@ -547,6 +553,7 @@ fun NodeDetailsContent(graphModel: GraphModel?, selectedNodeIds: Set<String>) {
                                 compareBy(
                                     { it.data.sequenceNumber ?: Int.MAX_VALUE },
                                     { it.data.cominSequenceNumber ?: Int.MAX_VALUE },
+                                    { manifestContentRank(it.data.content) },
                                     { it.data.manifestPath ?: "" }
                                 )
                             )

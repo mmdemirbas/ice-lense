@@ -1,7 +1,7 @@
 - Code cleanup & organization
 
 UX
-- Remove edge between sibling delete/data files.
+- When is the UI state saved? I close and re-open the app and observe that it re-opens in the previous monitor but I has moved it to the other monitor before closing. It feels inconsistent.
 - Metadata node could point to multiple snapshots, and edges mix with each other. Resolve this UX problem somehow (using different colors etc.)
 - Pinch zoom is not working.
 

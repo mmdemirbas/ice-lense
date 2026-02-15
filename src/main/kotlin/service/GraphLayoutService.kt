@@ -48,7 +48,6 @@ object GraphLayoutService {
         var nextFileId = 1
         val filePathToSimpleId = mutableMapOf<String, Int>()
         var nextSnapshotSimpleId = 1
-        var prevMetaId: String? = null
 
         tableModel.metadatas.forEach { metadata ->
             val fileName = metadata.path.fileName.toString()
@@ -59,13 +58,6 @@ object GraphLayoutService {
                 logicalNodes[mId] = GraphNode.MetadataNode(mId, fileName, meta, metadata.rawJson)
             }
 
-            // Link consecutive metadata files
-            if (prevMetaId != null) {
-                // We keep the logical edge for drawing, but NOT the ELK edge to avoid horizontal layout
-                edges.add(GraphEdge("e_meta_seq_$mId", prevMetaId, mId, isSibling = true))
-            }
-            prevMetaId = mId
-
             val sortedSnapshots = metadata.snapshots.sortedWith(
                 compareBy(
                     { it.metadata.timestampMs ?: Long.MAX_VALUE },
@@ -73,7 +65,6 @@ object GraphLayoutService {
                     { it.metadata.snapshotId ?: Long.MAX_VALUE }
                 )
             )
-            var previousSnapshotId: String? = null
             sortedSnapshots.forEach { snapshot ->
                 val snap = snapshot.metadata
                 val sId = "snap_${snap.snapshotId}"
@@ -87,21 +78,15 @@ object GraphLayoutService {
                 ElkGraphUtil.createSimpleEdge(elkNodes[mId], elkNodes[sId])
                 edges.add(GraphEdge(snapEdgeId, mId, sId))
 
-                if (previousSnapshotId != null) {
-                    edges.add(GraphEdge("e_snap_seq_${previousSnapshotId}_$sId", previousSnapshotId!!, sId, isSibling = true))
-                }
-                previousSnapshotId = sId
-
                 val manifests = snapshot.manifestLists.sortedWith(
                     compareBy(
                         { it.metadata.sequenceNumber ?: Int.MAX_VALUE },
                         { it.metadata.cominSequenceNumber ?: Int.MAX_VALUE },
                         { it.metadata.addedSnapshotId ?: Long.MAX_VALUE },
-                        { it.metadata.content ?: Int.MAX_VALUE },
+                        { manifestContentRank(it.metadata.content) },
                         { it.metadata.manifestPath ?: "" }
                     )
                 )
-                var previousManifestId: String? = null
                 manifests.forEach { unifiedManifest ->
                     val manifest = unifiedManifest.metadata
                     val rawManPath = manifest.manifestPath ?: "unknown_${UUID.randomUUID()}"
@@ -117,11 +102,6 @@ object GraphLayoutService {
                         edges.add(GraphEdge(manEdgeId, sId, manId))
                     }
 
-                    if (previousManifestId != null) {
-                        edges.add(GraphEdge("e_man_seq_${sId}_${previousManifestId}_$manId", previousManifestId!!, manId, isSibling = true))
-                    }
-                    previousManifestId = manId
-
                     if (processedManifests.add(manId)) {
                         val manifestPath = manifest.manifestPath
                         if (manifestPath != null) {
@@ -134,7 +114,6 @@ object GraphLayoutService {
                                     { it.metadata.dataFile?.filePath ?: "" }
                                 )
                             )
-                            var previousFileIdForManifest: String? = null
                             unifiedDataFiles.take(10).forEach { unifiedDataFile ->
                                 val entry = unifiedDataFile.metadata
                                 val dataFile = entry.dataFile ?: DataFile(filePath = "unknown")
@@ -150,18 +129,6 @@ object GraphLayoutService {
                                 val edgeId = "e_file_${manId}_to_$fId"
                                 ElkGraphUtil.createSimpleEdge(elkNodes[manId], elkNodes[fId])
                                 edges.add(GraphEdge(edgeId, manId, fId))
-
-                                if (previousFileIdForManifest != null) {
-                                    edges.add(
-                                        GraphEdge(
-                                            "e_file_seq_${manId}_${previousFileIdForManifest}_$fId",
-                                            previousFileIdForManifest!!,
-                                            fId,
-                                            isSibling = true
-                                        )
-                                    )
-                                }
-                                previousFileIdForManifest = fId
 
                                 if (showRows && processedFiles.add(fId)) {
                                     val pathWithoutScheme =
@@ -281,7 +248,7 @@ object GraphLayoutService {
                 { it?.sequenceNumber ?: Int.MAX_VALUE },
                 { it?.cominSequenceNumber ?: Int.MAX_VALUE },
                 { it?.addedSnapshotId ?: Long.MAX_VALUE },
-                { it?.content ?: Int.MAX_VALUE },
+                { manifestContentRank(it?.content) },
                 { it?.manifestPath ?: "" }
             )
         }
@@ -337,6 +304,12 @@ object GraphLayoutService {
         0 -> 1 // Data files second
         1 -> 2 // Position deletes last
         else -> 3
+    }
+
+    private fun manifestContentRank(content: Int?): Int = when (content ?: 0) {
+        1 -> 0 // Delete manifest first
+        0 -> 1 // Data manifest second
+        else -> 2
     }
 
     private fun createElkNode(parent: ElkNode, id: String, w: Double, h: Double): ElkNode {

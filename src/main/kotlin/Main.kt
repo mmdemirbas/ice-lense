@@ -2,6 +2,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
@@ -14,6 +15,9 @@ import java.awt.GraphicsDevice
 import java.awt.GraphicsEnvironment
 import java.awt.Point
 import java.awt.Rectangle
+import java.awt.event.ComponentAdapter
+import java.awt.event.ComponentEvent
+import java.awt.event.WindowStateListener
 import java.util.prefs.Preferences
 
 private val prefs = Preferences.userRoot().node("com.github.mmdemirbas.icelens.window")
@@ -148,6 +152,35 @@ fun main() = application {
         state = windowState
     ) {
         awtWindow = window
+        DisposableEffect(awtWindow) {
+            val w = awtWindow
+            if (w == null) {
+                onDispose {}
+            } else {
+                val componentListener = object : ComponentAdapter() {
+                    override fun componentMoved(e: ComponentEvent?) {
+                        persistWindowState(w, windowState.placement == WindowPlacement.Maximized)
+                    }
+
+                    override fun componentResized(e: ComponentEvent?) {
+                        persistWindowState(w, windowState.placement == WindowPlacement.Maximized)
+                    }
+                }
+                w.addComponentListener(componentListener)
+
+                val frame = w as? java.awt.Frame
+                val stateListener = WindowStateListener {
+                    persistWindowState(w, windowState.placement == WindowPlacement.Maximized)
+                }
+                frame?.addWindowStateListener(stateListener)
+
+                onDispose {
+                    w.removeComponentListener(componentListener)
+                    frame?.removeWindowStateListener(stateListener)
+                    persistWindowState(w, windowState.placement == WindowPlacement.Maximized)
+                }
+            }
+        }
         App()
     }
 }
