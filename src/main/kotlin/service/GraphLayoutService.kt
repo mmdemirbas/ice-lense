@@ -48,6 +48,72 @@ object GraphLayoutService {
         val filePathToSimpleId = mutableMapOf<String, Int>()
         var nextSnapshotSimpleId = 1
 
+        fun normalizeFilePath(path: String): String {
+            val trimmed = path.trim()
+            if (trimmed.isEmpty()) return trimmed
+            val normalized = if (trimmed.startsWith("file:")) {
+                runCatching { URI(trimmed).path }.getOrDefault(trimmed.removePrefix("file:"))
+            } else trimmed
+            return normalized.replace("\\", "/")
+        }
+
+        fun registerFilePathAlias(path: String, simpleId: Int) {
+            val trimmed = path.trim()
+            if (trimmed.isEmpty()) return
+            filePathToSimpleId.putIfAbsent(trimmed, simpleId)
+            filePathToSimpleId.putIfAbsent(normalizeFilePath(trimmed), simpleId)
+        }
+
+        fun assignSimpleId(path: String): Int {
+            val trimmed = path.trim()
+            val normalized = normalizeFilePath(trimmed)
+            val existing = filePathToSimpleId[trimmed] ?: filePathToSimpleId[normalized]
+            if (existing != null) {
+                registerFilePathAlias(trimmed, existing)
+                return existing
+            }
+            val simpleId = nextFileId++
+            registerFilePathAlias(trimmed, simpleId)
+            return simpleId
+        }
+
+        // Assign simple IDs for all file paths upfront so delete rows can always resolve target file IDs.
+        tableModel.metadatas.forEach { metadata ->
+            val sortedSnapshots = metadata.snapshots.sortedWith(
+                compareBy(
+                    { it.metadata.timestampMs ?: Long.MAX_VALUE },
+                    { it.metadata.sequenceNumber ?: Long.MAX_VALUE },
+                    { it.metadata.snapshotId ?: Long.MAX_VALUE }
+                )
+            )
+            sortedSnapshots.forEach { snapshot ->
+                val manifests = snapshot.manifestLists.sortedWith(
+                    compareBy(
+                        { it.metadata.sequenceNumber ?: Int.MAX_VALUE },
+                        { it.metadata.cominSequenceNumber ?: Int.MAX_VALUE },
+                        { it.metadata.addedSnapshotId ?: Long.MAX_VALUE },
+                        { manifestContentRank(it.metadata.content) },
+                        { it.metadata.manifestPath ?: "" }
+                    )
+                )
+                manifests.forEach { unifiedManifest ->
+                    val unifiedDataFiles = unifiedManifest.manifests.sortedWith(
+                        compareBy(
+                            { it.metadata.dataFile?.dataSequenceNumber ?: it.metadata.sequenceNumber ?: (unifiedManifest.metadata.sequenceNumber?.toLong() ?: Long.MAX_VALUE) },
+                            { it.metadata.fileSequenceNumber ?: Long.MAX_VALUE },
+                            { contentRank(it.metadata.dataFile?.content) },
+                            { it.metadata.status },
+                            { it.metadata.dataFile?.filePath ?: "" }
+                        )
+                    )
+                    unifiedDataFiles.forEach { unifiedDataFile ->
+                        val rawPath = unifiedDataFile.metadata.dataFile?.filePath.orEmpty()
+                        assignSimpleId(rawPath)
+                    }
+                }
+            }
+        }
+
         tableModel.metadatas.forEach { metadata ->
             val fileName = metadata.path.fileName.toString()
             val meta = metadata.metadata
@@ -117,7 +183,7 @@ object GraphLayoutService {
                                 val entry = unifiedDataFile.metadata
                                 val dataFile = entry.dataFile ?: DataFile(filePath = "unknown")
                                 val rawPath = dataFile.filePath.orEmpty()
-                                val simpleId = filePathToSimpleId.getOrPut(rawPath) { nextFileId++ }
+                                val simpleId = assignSimpleId(rawPath)
                                 // Keep logical file number stable by file path, but node IDs unique per manifest entry
                                 // so vertical order can follow manifest timeline without cross-manifest conflicts.
                                 val fId = "file_${manId}_${simpleId}_$fileIndex"
@@ -153,8 +219,9 @@ object GraphLayoutService {
                                                     if (contentType > 0 && rowData.cells.containsKey("file_path")) {
                                                         val targetPath =
                                                             rowData.cells["file_path"].toString()
-                                                        val targetId =
-                                                            filePathToSimpleId[targetPath] ?: "?"
+                                                        val targetId = filePathToSimpleId[targetPath]
+                                                            ?: filePathToSimpleId[normalizeFilePath(targetPath)]
+                                                            ?: "?"
                                                         enrichedData["target_file"] = "File $targetId"
                                                     }
                                                     enrichedData.putAll(rowData.cells)
@@ -275,6 +342,23 @@ object GraphLayoutService {
             ra.compareTo(rb)
         }
 
+        fun normalizeFilePath(path: String): String {
+            val trimmed = path.trim()
+            if (trimmed.isEmpty()) return trimmed
+            val normalized = if (trimmed.startsWith("file:")) {
+                runCatching { URI(trimmed).path }.getOrDefault(trimmed.removePrefix("file:"))
+            } else trimmed
+            return normalized.replace("\\", "/")
+        }
+
+        fun parsePosition(data: Map<String, Any>): Int? {
+            val raw = data["pos"] ?: data["position"] ?: return null
+            return when (raw) {
+                is Number -> raw.toInt()
+                else -> raw.toString().toLongOrNull()?.toInt()
+            }
+        }
+
         val metadataNodes = nodesById.values.filterIsInstance<GraphNode.MetadataNode>()
         reorder(metadataNodes, metadataComparator, minGap = 52.0)
 
@@ -321,10 +405,56 @@ object GraphLayoutService {
                 .mapNotNull { nodesById[it] as? GraphNode.RowNode }
                 .sortedWith(rowComparator)
         }
-        if (desiredRowOrder.size > 1) {
-            val rowYSlots = desiredRowOrder.map { it.y }.sorted()
+        val rowParentFileByRowId = orderedFiles.flatMap { fileNode ->
+            childrenByParent[fileNode.id].orEmpty().map { rowId -> rowId to fileNode }
+        }.toMap()
+
+        val dataRowsByTarget = mutableMapOf<Pair<String, Long>, List<GraphNode.RowNode>>()
+        orderedFiles.forEach { fileNode ->
+            val contentType = fileNode.data.content ?: 0
+            val snapshotId = fileNode.entry.snapshotId
+            val filePath = fileNode.data.filePath
+            if (contentType != 0 || snapshotId == null || filePath.isNullOrBlank()) return@forEach
+            val key = normalizeFilePath(filePath) to snapshotId
+            if (dataRowsByTarget.containsKey(key)) return@forEach
+            val rows = childrenByParent[fileNode.id].orEmpty()
+                .mapNotNull { nodesById[it] as? GraphNode.RowNode }
+                .sortedWith(rowComparator)
+            dataRowsByTarget[key] = rows
+        }
+
+        data class PosDeleteMove(val row: GraphNode.RowNode, val anchor: GraphNode.RowNode)
+        val moveCandidates = mutableListOf<PosDeleteMove>()
+        desiredRowOrder.forEach { rowNode ->
+            if (rowNode.content != 1) return@forEach
+            val deleteFile = rowParentFileByRowId[rowNode.id] ?: return@forEach
+            val deleteSnapshotId = deleteFile.entry.snapshotId ?: return@forEach
+            val targetPath = rowNode.data["file_path"]?.toString() ?: return@forEach
+            val targetRows = dataRowsByTarget[normalizeFilePath(targetPath) to deleteSnapshotId] ?: return@forEach
+            val position = parsePosition(rowNode.data) ?: return@forEach
+            if (position < 0 || position >= targetRows.size) return@forEach
+            moveCandidates.add(PosDeleteMove(rowNode, targetRows[position]))
+        }
+
+        val adjustedRowOrder = desiredRowOrder.toMutableList()
+        val insertedAfterAnchor = mutableMapOf<String, Int>()
+        moveCandidates.forEach { move ->
+            adjustedRowOrder.remove(move.row)
+            val anchorIndex = adjustedRowOrder.indexOfFirst { it.id == move.anchor.id }
+            if (anchorIndex < 0) {
+                adjustedRowOrder.add(move.row)
+            } else {
+                val offset = insertedAfterAnchor[move.anchor.id] ?: 0
+                val insertAt = (anchorIndex + 1 + offset).coerceAtMost(adjustedRowOrder.size)
+                adjustedRowOrder.add(insertAt, move.row)
+                insertedAfterAnchor[move.anchor.id] = offset + 1
+            }
+        }
+
+        if (adjustedRowOrder.size > 1) {
+            val rowYSlots = adjustedRowOrder.map { it.y }.sorted()
             var currentY = rowYSlots.first()
-            desiredRowOrder.forEachIndexed { index, rowNode ->
+            adjustedRowOrder.forEachIndexed { index, rowNode ->
                 val slotY = rowYSlots[index]
                 currentY = if (index == 0) slotY else maxOf(slotY, currentY + 24.0)
                 rowNode.y = currentY
