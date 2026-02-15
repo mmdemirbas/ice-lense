@@ -24,6 +24,21 @@ import java.time.format.DateTimeFormatter
 private fun metadataCardId(fileName: String): String =
     fileName.removePrefix("v").removeSuffix(".metadata.json").toIntOrNull()?.toString() ?: "?"
 
+private fun manifestContentLabel(content: Int?): String =
+    if (content == 1) "DELETE" else "DATA"
+
+private fun fileContentLabel(content: Int?): String = when (content ?: 0) {
+    1 -> "POS DELETE"
+    2 -> "EQ DELETE"
+    else -> "DATA"
+}
+
+private fun rowContentLabel(content: Int): String = when (content) {
+    1 -> "POS DELETE ROW"
+    2 -> "EQ DELETE ROW"
+    else -> "DATA ROW"
+}
+
 fun getGraphNodeColor(node: GraphNode): Color = when (node) {
     is GraphNode.TableNode    -> Color(0xFFD7CCC8)
     is GraphNode.MetadataNode -> Color(0xFFE1BEE7)
@@ -35,13 +50,13 @@ fun getGraphNodeColor(node: GraphNode): Color = when (node) {
 
     is GraphNode.FileNode     -> when (node.data.content ?: 0) {
         1    -> Color(0xFFFFCDD2) // Position delete (same family as delete manifests)
-        2    -> Color(0xFFEF9A9A) // Equality delete (slightly deeper red)
+        2    -> Color(0xFFFFF59D) // Equality delete (yellow)
         else -> Color(0xFFC8E6C9) // Data (same as data manifests)
     }
 
     is GraphNode.RowNode      -> when (node.content) {
         1    -> Color(0xFFFFCDD2) // Position delete (same as position delete files)
-        2    -> Color(0xFFEF9A9A) // Equality delete (same as equality delete files)
+        2    -> Color(0xFFFFF59D) // Equality delete (yellow)
         else -> Color(0xFFC8E6C9) // Data (same as data manifests/files)
     }
 }
@@ -57,13 +72,13 @@ fun getGraphNodeBorderColor(node: GraphNode): Color = when (node) {
 
     is GraphNode.FileNode     -> when (node.data.content ?: 0) {
         1    -> Color(0xFFD32F2F) // Position delete
-        2    -> Color(0xFFC62828) // Equality delete (slight distinction)
+        2    -> Color(0xFFF9A825) // Equality delete (yellow border)
         else -> Color(0xFF388E3C) // Data
     }
 
     is GraphNode.RowNode      -> when (node.content) {
         1    -> Color(0xFFD32F2F) // Position delete
-        2    -> Color(0xFFC62828) // Equality delete
+        2    -> Color(0xFFF9A825) // Equality delete (yellow border)
         else -> Color(0xFF388E3C) // Data
     }
 }
@@ -146,19 +161,11 @@ fun NodeTooltip(node: GraphNode) {
     ) {
         val title = when (node) {
             is GraphNode.TableNode -> "Table"
-            is GraphNode.MetadataNode -> "Metadata File"
-            is GraphNode.SnapshotNode -> "Snapshot"
-            is GraphNode.ManifestNode -> if (node.data.content == 1) "Delete Manifest" else "Data Manifest"
-            is GraphNode.FileNode -> when (node.data.content ?: 0) {
-                1 -> "Position Delete File"
-                2 -> "Equality Delete File"
-                else -> "Data File"
-            }
-            is GraphNode.RowNode -> when (node.content) {
-                1 -> "Position Delete Row"
-                2 -> "Equality Delete Row"
-                else -> "Data Row"
-            }
+            is GraphNode.MetadataNode -> "METADATA ${metadataCardId(node.fileName)}"
+            is GraphNode.SnapshotNode -> "SNAPSHOT ${node.simpleId}"
+            is GraphNode.ManifestNode -> "MANIFEST ${node.simpleId}: ${manifestContentLabel(node.data.content)}"
+            is GraphNode.FileNode -> "FILE ${node.simpleId}: ${fileContentLabel(node.data.content)}"
+            is GraphNode.RowNode -> rowContentLabel(node.content)
         }
         
         Text(
@@ -287,7 +294,7 @@ fun ManifestCard(node: GraphNode.ManifestNode, isSelected: Boolean = false) {
     val color = getGraphNodeColor(node)
     val borderColor = if (isSelected) Color.Black else getGraphNodeBorderColor(node)
     val borderWidth = if (isSelected) 4.dp else 2.dp
-    val contentLabel = if (node.data.content == 1) "DELETE" else "DATA"
+    val contentLabel = manifestContentLabel(node.data.content)
 
     Box(
         modifier = Modifier
@@ -308,12 +315,7 @@ fun ManifestCard(node: GraphNode.ManifestNode, isSelected: Boolean = false) {
 
 @Composable
 fun FileCard(node: GraphNode.FileNode, isSelected: Boolean = false) {
-    val content = node.data.content ?: 0
-    val label = when (content) {
-        1    -> "FILE ${node.simpleId}: POS DELETE"
-        2    -> "FILE ${node.simpleId}: EQ DELETE"
-        else -> "FILE ${node.simpleId}: DATA"
-    }
+    val label = "FILE ${node.simpleId}: ${fileContentLabel(node.data.content)}"
     val borderWidth = if (isSelected) 3.dp else 1.dp
     val borderColor = if (isSelected) Color.Black else getGraphNodeBorderColor(node)
 
@@ -347,11 +349,7 @@ fun RowCard(node: GraphNode.RowNode, isSelected: Boolean = false) {
         .border(BorderStroke(borderWidth, borderColor), RoundedCornerShape(4.dp))
         .padding(6.dp)) {
         Column(Modifier.fillMaxSize()) {
-            val label = when (node.content) {
-                1    -> "POS DELETE ROW"
-                2    -> "EQ DELETE ROW"
-                else -> "DATA ROW"
-            }
+            val label = rowContentLabel(node.content)
             Text(
                 label,
                 fontSize = 9.sp,

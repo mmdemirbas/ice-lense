@@ -27,19 +27,22 @@ import model.MetadataLogEntry
 import model.SnapshotLogEntry
 
 private fun nodeTitle(node: GraphNode): String = when (node) {
-    is GraphNode.TableNode -> "Table ${node.summary.tableName}"
-    is GraphNode.MetadataNode -> node.fileName
-    is GraphNode.SnapshotNode -> "Snapshot ${node.simpleId}"
-    is GraphNode.ManifestNode -> if (node.data.content == 1) "Delete Manifest" else "Data Manifest"
-    is GraphNode.FileNode -> when (node.data.content ?: 0) {
-        1 -> "Pos Delete ${node.simpleId}"
-        2 -> "Eq Delete ${node.simpleId}"
-        else -> "Data File ${node.simpleId}"
+    is GraphNode.TableNode -> "TABLE ${node.summary.tableName}"
+    is GraphNode.MetadataNode -> {
+        val metadataId = node.fileName.removePrefix("v").removeSuffix(".metadata.json").toIntOrNull()
+        "METADATA ${metadataId ?: "?"}"
     }
+    is GraphNode.SnapshotNode -> "SNAPSHOT ${node.simpleId}"
+    is GraphNode.ManifestNode -> "MANIFEST ${node.simpleId}: ${if (node.data.content == 1) "DELETE" else "DATA"}"
+    is GraphNode.FileNode -> "FILE ${node.simpleId}: ${when (node.data.content ?: 0) {
+        1 -> "POS DELETE"
+        2 -> "EQ DELETE"
+        else -> "DATA"
+    }}"
     is GraphNode.RowNode -> when (node.content) {
-        1 -> "Position Delete Row"
-        2 -> "Equality Delete Row"
-        else -> "Data Row"
+        1 -> "POS DELETE ROW"
+        2 -> "EQ DELETE ROW"
+        else -> "DATA ROW"
     }
 }
 
