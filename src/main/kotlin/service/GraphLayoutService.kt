@@ -32,10 +32,10 @@ object GraphLayoutService {
         root.setProperty(CoreOptions.ALGORITHM, "org.eclipse.elk.layered")
         root.setProperty(CoreOptions.DIRECTION, Direction.RIGHT)
         root.setProperty(CoreOptions.EDGE_ROUTING, EdgeRouting.SPLINES)
-        root.setProperty(CoreOptions.SPACING_NODE_NODE, 100.0)
+        root.setProperty(CoreOptions.SPACING_NODE_NODE, 180.0)
         root.setProperty(
             org.eclipse.elk.alg.layered.options.LayeredOptions.SPACING_NODE_NODE_BETWEEN_LAYERS,
-            300.0
+            500.0
         )
 
         val elkNodes = mutableMapOf<String, ElkNode>()
@@ -211,12 +211,15 @@ object GraphLayoutService {
         nodesById: Map<String, GraphNode>,
         edges: List<GraphEdge>
     ) {
-        fun reorder(nodes: List<GraphNode>, comparator: Comparator<GraphNode>) {
+        fun reorder(nodes: List<GraphNode>, comparator: Comparator<GraphNode>, minGap: Double = 24.0) {
             if (nodes.size < 2) return
             val ySlots = nodes.map { it.y }.sorted()
             val desired = nodes.sortedWith(comparator)
+            var currentY = ySlots.first()
             desired.forEachIndexed { index, node ->
-                node.y = ySlots[index]
+                val slotY = ySlots[index]
+                currentY = if (index == 0) slotY else maxOf(slotY, currentY + minGap)
+                node.y = currentY
             }
         }
 
@@ -273,18 +276,18 @@ object GraphLayoutService {
         }
 
         val metadataNodes = nodesById.values.filterIsInstance<GraphNode.MetadataNode>()
-        reorder(metadataNodes, metadataComparator)
+        reorder(metadataNodes, metadataComparator, minGap = 52.0)
 
         metadataNodes.forEach { parent ->
             val snapshotChildren = childrenByParent[parent.id].orEmpty()
                 .mapNotNull { nodesById[it] as? GraphNode.SnapshotNode }
-            reorder(snapshotChildren, snapshotComparator)
+            reorder(snapshotChildren, snapshotComparator, minGap = 40.0)
         }
 
         nodesById.values.filterIsInstance<GraphNode.SnapshotNode>().forEach { parent ->
             val manifestChildren = childrenByParent[parent.id].orEmpty()
                 .mapNotNull { nodesById[it] as? GraphNode.ManifestNode }
-            reorder(manifestChildren, manifestComparator)
+            reorder(manifestChildren, manifestComparator, minGap = 34.0)
         }
 
         // File nodes must follow manifest timeline globally (top->bottom), not just inside each manifest.
@@ -300,8 +303,11 @@ object GraphLayoutService {
         }
         if (desiredFileOrder.size > 1) {
             val fileYSlots = desiredFileOrder.map { it.y }.sorted()
+            var currentY = fileYSlots.first()
             desiredFileOrder.forEachIndexed { index, fileNode ->
-                fileNode.y = fileYSlots[index]
+                val slotY = fileYSlots[index]
+                currentY = if (index == 0) slotY else maxOf(slotY, currentY + 30.0)
+                fileNode.y = currentY
             }
         }
 
@@ -317,8 +323,11 @@ object GraphLayoutService {
         }
         if (desiredRowOrder.size > 1) {
             val rowYSlots = desiredRowOrder.map { it.y }.sorted()
+            var currentY = rowYSlots.first()
             desiredRowOrder.forEachIndexed { index, rowNode ->
-                rowNode.y = rowYSlots[index]
+                val slotY = rowYSlots[index]
+                currentY = if (index == 0) slotY else maxOf(slotY, currentY + 24.0)
+                rowNode.y = currentY
             }
         }
     }

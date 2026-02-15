@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -35,6 +36,14 @@ import model.GraphNode
 import model.GraphEdge
 import kotlin.math.max
 import kotlin.math.min
+
+private fun tonedEdgeColor(base: Color, sourceId: String): Color {
+    val hash = sourceId.hashCode()
+    val toneStep = ((hash and 0x7fffffff) % 9) - 4 // -4..4
+    val delta = toneStep * 0.05f
+    fun ch(v: Float): Float = (v + delta).coerceIn(0f, 1f)
+    return Color(ch(base.red), ch(base.green), ch(base.blue), base.alpha)
+}
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -126,41 +135,53 @@ fun GraphCanvas(
     }
 
     fun DrawScope.drawEdge(edge: GraphEdge, source: GraphNode, target: GraphNode, color: Color, strokeWidth: Float) {
-        if (edge.isSibling) {
-            val startX = (source.x + source.width / 2).toFloat()
-            val startY = (source.y + source.height).toFloat()
-            val endX = (target.x + target.width / 2).toFloat()
-            val endY = target.y.toFloat()
-            val midY = startY + (endY - startY) / 2f
+        val isSnapshotToManifest = source is GraphNode.SnapshotNode && target is GraphNode.ManifestNode
+        val outIndex = snapshotManifestOutLaneByEdgeId[edge.id] ?: 0
+        val inIndex = snapshotManifestInLaneByEdgeId[edge.id] ?: 0
+        val outCount = if (isSnapshotToManifest) {
+            graph.edges.count { it.fromId == edge.fromId && nodeById[it.toId] is GraphNode.ManifestNode }
+        } else 1
+        val inCount = if (isSnapshotToManifest) {
+            graph.edges.count { it.toId == edge.toId && nodeById[it.fromId] is GraphNode.SnapshotNode }
+        } else 1
+        val outCentered = outIndex - ((outCount - 1) / 2f)
+        val inCentered = inIndex - ((inCount - 1) / 2f)
+        val laneYSpacing = 8f
+        val laneXSpacing = 14f
 
-            drawLine(color, Offset(startX, startY), Offset(startX, midY), strokeWidth = strokeWidth)
-            drawLine(color, Offset(startX, midY), Offset(endX, midY), strokeWidth = strokeWidth)
-            drawLine(color, Offset(endX, midY), Offset(endX, endY), strokeWidth = strokeWidth)
-        } else {
-            val isSnapshotToManifest = source is GraphNode.SnapshotNode && target is GraphNode.ManifestNode
-            val outIndex = snapshotManifestOutLaneByEdgeId[edge.id] ?: 0
-            val inIndex = snapshotManifestInLaneByEdgeId[edge.id] ?: 0
-            val outCount = if (isSnapshotToManifest) {
-                graph.edges.count { it.fromId == edge.fromId && nodeById[it.toId] is GraphNode.ManifestNode }
-            } else 1
-            val inCount = if (isSnapshotToManifest) {
-                graph.edges.count { it.toId == edge.toId && nodeById[it.fromId] is GraphNode.SnapshotNode }
-            } else 1
-            val outCentered = outIndex - ((outCount - 1) / 2f)
-            val inCentered = inIndex - ((inCount - 1) / 2f)
-            val laneYSpacing = 8f
-            val laneXSpacing = 14f
-
-            val startX = (source.x + source.width).toFloat()
-            val startY = (source.y + source.height / 2).toFloat() + if (isSnapshotToManifest) outCentered * laneYSpacing else 0f
-            val endX = target.x.toFloat()
-            val endY = (target.y + target.height / 2).toFloat() + if (isSnapshotToManifest) inCentered * laneYSpacing else 0f
-            val midX = startX + (endX - startX) / 2f + if (isSnapshotToManifest) (outCentered + inCentered) * 0.5f * laneXSpacing else 0f
-
-            drawLine(color, Offset(startX, startY), Offset(midX, startY), strokeWidth = strokeWidth)
-            drawLine(color, Offset(midX, startY), Offset(midX, endY), strokeWidth = strokeWidth)
-            drawLine(color, Offset(midX, endY), Offset(endX, endY), strokeWidth = strokeWidth)
+        // Always use right-center -> left-center anchors.
+        val startX = (source.x + source.width).toFloat()
+        val startY = (source.y + source.height / 2).toFloat()
+        val endX = target.x.toFloat()
+        val endY = (target.y + target.height / 2).toFloat()
+        val horizontalGap = kotlin.math.abs(endX - startX).coerceAtLeast(1f)
+        // Explicit visible side ports: always leave from the right side and enter from the left side.
+        val fixedPortStub = 18f
+        val startStubX = startX + fixedPortStub
+        val endStubX = endX - fixedPortStub
+        val baseC1x = startStubX + horizontalGap * 0.22f
+        val baseC2x = endStubX - horizontalGap * 0.22f
+        val laneShift = if (isSnapshotToManifest) (outCentered + inCentered) * 0.5f * laneXSpacing else 0f
+        val c1x = (baseC1x + laneShift).coerceAtLeast(startStubX + 4f)
+        val c2x = (baseC2x + laneShift).coerceAtMost(endStubX - 4f)
+        val path = Path().apply {
+            moveTo(startX, startY)
+            lineTo(startStubX, startY)
+            cubicTo(
+                c1x,
+                startY,
+                c2x,
+                endY,
+                endStubX,
+                endY
+            )
+            lineTo(endX, endY)
         }
+        drawPath(
+            path = path,
+            color = color,
+            style = Stroke(width = strokeWidth)
+        )
     }
 
     BoxWithConstraints(
@@ -397,7 +418,7 @@ fun GraphCanvas(
                     val target = nodeById[edge.toId]
 
                     if (source != null && target != null) {
-                        val edgeColor = getGraphNodeBorderColor(source)
+                        val edgeColor = tonedEdgeColor(getGraphNodeBorderColor(source), source.id)
                         if (activeNodeIds.contains(edge.fromId) || activeNodeIds.contains(edge.toId)) {
                             drawEdge(edge, source, target, edgeColor, strokeWidth = 6f)
                         } else {
