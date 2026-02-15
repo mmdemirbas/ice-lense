@@ -83,6 +83,7 @@ data class DataFile(
     @SerialName("file_size_in_bytes") val fileSizeInBytes: Long? = null,
     // V2 Specific: 0=DATA, 1=POSITION_DELETES, 2=EQUALITY_DELETES
     val content: Int? = null,
+    @SerialName("data_sequence_number") val dataSequenceNumber: Long? = null,
     @SerialName("column_sizes") val columnSizes: List<KeyValuePairLong> = emptyList(),
     @SerialName("value_counts") val valueCounts: List<KeyValuePairLong> = emptyList(),
     @SerialName("null_value_counts") val nullValueCounts: List<KeyValuePairLong> = emptyList(),

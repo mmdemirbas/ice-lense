@@ -1,6 +1,9 @@
+- Code cleanup & organization
+
 UX
-- Pinch zoom is not working.
+- Remove edge between sibling delete/data files.
 - Metadata node could point to multiple snapshots, and edges mix with each other. Resolve this UX problem somehow (using different colors etc.)
+- Pinch zoom is not working.
 
 
 PERFORMANCE

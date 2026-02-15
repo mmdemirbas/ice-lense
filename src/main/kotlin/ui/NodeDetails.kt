@@ -63,6 +63,13 @@ private fun currentSnapshotLabel(currentSnapshotId: Long?): String = when (curre
     else -> currentSnapshotId.toString()
 }
 
+private fun timelineContentRank(content: Int?): Int = when (content ?: 0) {
+    2 -> 0
+    0 -> 1
+    1 -> 2
+    else -> 3
+}
+
 private fun childNodes(node: GraphNode, graphModel: GraphModel): List<GraphNode> {
     val nodeById = graphModel.nodes.associateBy { it.id }
     return graphModel.edges
@@ -379,8 +386,9 @@ fun NodeDetailsContent(graphModel: GraphModel?, selectedNodeIds: Set<String>) {
                             .filterIsInstance<GraphNode.FileNode>()
                             .sortedWith(
                                 compareBy(
-                                    { it.entry.sequenceNumber ?: Long.MAX_VALUE },
+                                    { it.data.dataSequenceNumber ?: it.entry.sequenceNumber ?: Long.MAX_VALUE },
                                     { it.entry.fileSequenceNumber ?: Long.MAX_VALUE },
+                                    { timelineContentRank(it.data.content) },
                                     { it.simpleId }
                                 )
                             )

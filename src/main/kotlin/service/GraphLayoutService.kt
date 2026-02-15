@@ -127,8 +127,9 @@ object GraphLayoutService {
                         if (manifestPath != null) {
                             val unifiedDataFiles = unifiedManifest.manifests.sortedWith(
                                 compareBy(
-                                    { it.metadata.sequenceNumber ?: Long.MAX_VALUE },
+                                    { it.metadata.dataFile?.dataSequenceNumber ?: it.metadata.sequenceNumber ?: (manifest.sequenceNumber?.toLong() ?: Long.MAX_VALUE) },
                                     { it.metadata.fileSequenceNumber ?: Long.MAX_VALUE },
+                                    { contentRank(it.metadata.dataFile?.content) },
                                     { it.metadata.status },
                                     { it.metadata.dataFile?.filePath ?: "" }
                                 )
@@ -233,7 +234,109 @@ object GraphLayoutService {
             node
         }
 
+        enforceChronologicalVerticalOrder(logicalNodes, edges)
+
         return GraphModel(finalNodes, edges, root.width, root.height)
+    }
+
+    private fun enforceChronologicalVerticalOrder(
+        nodesById: Map<String, GraphNode>,
+        edges: List<GraphEdge>
+    ) {
+        fun reorder(nodes: List<GraphNode>, comparator: Comparator<GraphNode>) {
+            if (nodes.size < 2) return
+            val ySlots = nodes.map { it.y }.sorted()
+            val desired = nodes.sortedWith(comparator)
+            desired.forEachIndexed { index, node ->
+                node.y = ySlots[index]
+            }
+        }
+
+        val nonSiblingEdges = edges.filter { !it.isSibling }
+        val childrenByParent = nonSiblingEdges.groupBy { it.fromId }
+            .mapValues { (_, v) -> v.map { it.toId } }
+
+        val metadataComparator = Comparator<GraphNode> { a, b ->
+            val ma = a as? GraphNode.MetadataNode
+            val mb = b as? GraphNode.MetadataNode
+            val va = ma?.fileName?.removePrefix("v")?.removeSuffix(".metadata.json")?.toIntOrNull() ?: Int.MAX_VALUE
+            val vb = mb?.fileName?.removePrefix("v")?.removeSuffix(".metadata.json")?.toIntOrNull() ?: Int.MAX_VALUE
+            va.compareTo(vb)
+        }
+
+        val snapshotComparator = Comparator<GraphNode> { a, b ->
+            val sa = (a as? GraphNode.SnapshotNode)?.data
+            val sb = (b as? GraphNode.SnapshotNode)?.data
+            compareValuesBy(sa, sb,
+                { it?.timestampMs ?: Long.MAX_VALUE },
+                { it?.sequenceNumber ?: Long.MAX_VALUE },
+                { it?.snapshotId ?: Long.MAX_VALUE }
+            )
+        }
+
+        val manifestComparator = Comparator<GraphNode> { a, b ->
+            val ma = (a as? GraphNode.ManifestNode)?.data
+            val mb = (b as? GraphNode.ManifestNode)?.data
+            compareValuesBy(ma, mb,
+                { it?.sequenceNumber ?: Int.MAX_VALUE },
+                { it?.cominSequenceNumber ?: Int.MAX_VALUE },
+                { it?.addedSnapshotId ?: Long.MAX_VALUE },
+                { it?.content ?: Int.MAX_VALUE },
+                { it?.manifestPath ?: "" }
+            )
+        }
+
+        val fileComparator = Comparator<GraphNode> { a, b ->
+            val fa = a as? GraphNode.FileNode
+            val fb = b as? GraphNode.FileNode
+            compareValuesBy(fa, fb,
+                { it?.data?.dataSequenceNumber ?: it?.entry?.sequenceNumber ?: Long.MAX_VALUE },
+                { it?.entry?.fileSequenceNumber ?: Long.MAX_VALUE },
+                { contentRank(it?.data?.content) },
+                { it?.entry?.status ?: Int.MAX_VALUE },
+                { it?.data?.filePath ?: "" }
+            )
+        }
+
+        val rowComparator = Comparator<GraphNode> { a, b ->
+            val ra = (a as? GraphNode.RowNode)?.id ?: ""
+            val rb = (b as? GraphNode.RowNode)?.id ?: ""
+            ra.compareTo(rb)
+        }
+
+        val metadataNodes = nodesById.values.filterIsInstance<GraphNode.MetadataNode>()
+        reorder(metadataNodes, metadataComparator)
+
+        metadataNodes.forEach { parent ->
+            val snapshotChildren = childrenByParent[parent.id].orEmpty()
+                .mapNotNull { nodesById[it] as? GraphNode.SnapshotNode }
+            reorder(snapshotChildren, snapshotComparator)
+        }
+
+        nodesById.values.filterIsInstance<GraphNode.SnapshotNode>().forEach { parent ->
+            val manifestChildren = childrenByParent[parent.id].orEmpty()
+                .mapNotNull { nodesById[it] as? GraphNode.ManifestNode }
+            reorder(manifestChildren, manifestComparator)
+        }
+
+        nodesById.values.filterIsInstance<GraphNode.ManifestNode>().forEach { parent ->
+            val fileChildren = childrenByParent[parent.id].orEmpty()
+                .mapNotNull { nodesById[it] as? GraphNode.FileNode }
+            reorder(fileChildren, fileComparator)
+        }
+
+        nodesById.values.filterIsInstance<GraphNode.FileNode>().forEach { parent ->
+            val rowChildren = childrenByParent[parent.id].orEmpty()
+                .mapNotNull { nodesById[it] as? GraphNode.RowNode }
+            reorder(rowChildren, rowComparator)
+        }
+    }
+
+    private fun contentRank(content: Int?): Int = when (content ?: 0) {
+        2 -> 0 // Equality deletes first
+        0 -> 1 // Data files second
+        1 -> 2 // Position deletes last
+        else -> 3
     }
 
     private fun createElkNode(parent: ElkNode, id: String, w: Double, h: Double): ElkNode {
