@@ -69,6 +69,7 @@ private fun resolveLaunchWindowConfig(): LaunchWindowConfig {
     val devices = allDisplayDevices()
     val targetScreen = selectedDisplay(devices)?.defaultConfiguration?.bounds
         ?: Rectangle(100, 100, DEFAULT_WIDTH, DEFAULT_HEIGHT)
+    val wasMaximized = prefs.getBoolean(PREF_WINDOW_MAXIMIZED, false)
     val savedX = prefs.get(PREF_WINDOW_X, null)?.toIntOrNull()
     val savedY = prefs.get(PREF_WINDOW_Y, null)?.toIntOrNull()
     val savedW = prefs.getInt(PREF_WINDOW_WIDTH, DEFAULT_WIDTH)
@@ -77,14 +78,18 @@ private fun resolveLaunchWindowConfig(): LaunchWindowConfig {
         Rectangle(savedX, savedY, savedW, savedH)
     } else null
     val visibleBounds = devices.map { it.defaultConfiguration.bounds }
-    val safeBounds = if (savedBounds != null && visibleBounds.any { it.intersects(savedBounds) }) {
+    val safeBounds = if (wasMaximized) {
+        // When reopening maximized, prefer the selected display and avoid stale saved bounds
+        // from another monitor.
+        safelySizedBounds(targetScreen)
+    } else if (savedBounds != null && visibleBounds.any { it.intersects(savedBounds) }) {
         savedBounds
     } else {
         safelySizedBounds(targetScreen)
     }
     return LaunchWindowConfig(
         bounds = safeBounds,
-        maximized = prefs.getBoolean(PREF_WINDOW_MAXIMIZED, false)
+        maximized = wasMaximized
     )
 }
 

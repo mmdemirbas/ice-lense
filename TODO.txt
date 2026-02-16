@@ -4,8 +4,8 @@ DATA TABLE
 ---
 
 UI BUGS
-- When is the UI state saved? I close and re-open the app and observe that it re-opens in the previous monitor but I has moved it to the other monitor before closing. It feels inconsistent.
 - Pinch zoom is not working.
+- Mouse pointer and the moving card are not in sync when dragging in zoomed in/out state.
 
 ---
 
