@@ -324,7 +324,7 @@ fun GraphCanvas(
         }
         val visibleNodeIds = visibleNodes.asSequence().map { it.id }.toHashSet()
         val visibleEdges = graph.edges.filter { edge ->
-            edge.fromId in visibleNodeIds && edge.toId in visibleNodeIds
+            edge.fromId in visibleNodeIds || edge.toId in visibleNodeIds
         }
 
         fun clampOffset(rawOffset: Offset, zoomValue: Float): Offset {

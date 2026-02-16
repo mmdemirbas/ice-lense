@@ -104,13 +104,13 @@ fun getGraphNodeBorderColor(node: GraphNode): Color = when (node) {
 
     is GraphNode.FileNode     -> when (node.data.content ?: 0) {
         1    -> Color(0xFFD32F2F) // Position delete
-        2    -> Color(0xFFF9A825) // Equality delete (yellow border)
+        2    -> Color(0xFFB26A00) // Equality delete (darker amber border for edge visibility)
         else -> Color(0xFF388E3C) // Data
     }
 
     is GraphNode.RowNode      -> when (node.content) {
         1    -> Color(0xFFD32F2F) // Position delete
-        2    -> Color(0xFFF9A825) // Equality delete (yellow border)
+        2    -> Color(0xFFB26A00) // Equality delete (darker amber border for edge visibility)
         else -> Color(0xFF388E3C) // Data
     }
     is GraphNode.ErrorNode    -> Color(0xFFB71C1C)

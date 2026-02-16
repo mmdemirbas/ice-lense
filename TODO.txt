@@ -8,14 +8,6 @@ UI BUGS
 
 ---
 
-SELECTION
-- Support "pick-selection" by Cmd+click (or whichever shortcut is common).
-- I think there is a bug in selection logic. We should be able to easily de-select by clicking outside or using the pick selection shortcut again.
-
----
-
-EDGES BECOME INVISIBLE
-- When children nodes are out of screen, their edges are also become invisible (hid immediately for some reason). It is misleading since it gives the impression that the parent node has no children at all.
 
 
 
