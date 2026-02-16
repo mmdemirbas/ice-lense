@@ -523,121 +523,105 @@ object GraphLayoutService {
     private fun alignParentsWithChildren(
         nodesById: Map<String, GraphNode>,
         edges: List<GraphEdge>,
-        strategy: ParentAlignment
+        _strategy: ParentAlignment
     ) {
         val nonSiblingEdges = edges.filter { !it.isSibling }
-        val childrenByParent = nonSiblingEdges.groupBy { it.fromId }
-            .mapValues { (_, v) -> v.map { nodesById[it.toId] }.filterNotNull() }
+        val childrenByParentIds = nonSiblingEdges
+            .groupBy { it.fromId }
+            .mapValues { (_, v) -> v.map { it.toId } }
+        val parentsByChildIds = nonSiblingEdges
+            .groupBy { it.toId }
+            .mapValues { (_, v) -> v.map { it.fromId } }
 
-        fun alignWithFirstChild(parent: GraphNode, children: List<GraphNode>) {
-            if (children.isEmpty()) return
-            parent.y = children.minByOrNull { it.y }?.y ?: parent.y
+        fun sortedChildren(parentId: String, childFilter: (GraphNode) -> Boolean): List<GraphNode> =
+            childrenByParentIds[parentId]
+                .orEmpty()
+                .mapNotNull { nodesById[it] }
+                .filter(childFilter)
+                .sortedWith(compareBy({ it.y }, { it.id }))
+
+        fun siblingParentIds(
+            parentId: String,
+            layerParentIds: Set<String>,
+            upstreamFilter: (GraphNode) -> Boolean
+        ): Set<String> {
+            val upstreamIds = parentsByChildIds[parentId]
+                .orEmpty()
+                .filter { upId -> nodesById[upId]?.let(upstreamFilter) == true }
+            if (upstreamIds.isEmpty()) return setOf(parentId)
+
+            val siblings = upstreamIds
+                .asSequence()
+                .flatMap { upstreamId ->
+                    childrenByParentIds[upstreamId].orEmpty().asSequence()
+                }
+                .filter { it in layerParentIds }
+                .toSet()
+
+            return if (siblings.isEmpty()) setOf(parentId) else siblings
         }
 
-        fun centerWithChildren(parent: GraphNode, children: List<GraphNode>) {
-            if (children.isEmpty()) return
-            val minChildY = children.minOfOrNull { it.y } ?: return
-            val maxChildY = children.maxOfOrNull { it.y + it.height } ?: return
-            val childrenCenter = (minChildY + maxChildY) / 2.0
-            parent.y = childrenCenter - parent.height / 2.0
-        }
+        fun alignLayer(
+            parents: List<GraphNode>,
+            upstreamFilter: (GraphNode) -> Boolean,
+            childFilter: (GraphNode) -> Boolean
+        ) {
+            if (parents.isEmpty()) return
+            val orderedParents = parents.sortedWith(compareBy({ it.y }, { it.id }))
+            val layerParentIds = orderedParents.map { it.id }.toSet()
+            val orderIndexByParentId = orderedParents
+                .mapIndexed { index, parent -> parent.id to index }
+                .toMap()
 
-        // Align files with their rows, applying special rules for delete files
-        val fileNodes = nodesById.values.filterIsInstance<GraphNode.FileNode>()
-        fileNodes.forEach { fileNode ->
-            val children = childrenByParent[fileNode.id] ?: emptyList()
-            val rows = children.filterIsInstance<GraphNode.RowNode>()
-            if (rows.isEmpty()) return@forEach
+            orderedParents.forEach { parent ->
+                val children = sortedChildren(parent.id, childFilter)
+                if (children.isEmpty()) return@forEach
 
-            val contentType = fileNode.data.content ?: 0
-            when (contentType) {
-                2 -> {
-                    // Equality delete file: align with first equality delete row
-                    val firstEqDeleteRow = rows.firstOrNull { it.content == 2 }
-                    if (firstEqDeleteRow != null) {
-                        fileNode.y = firstEqDeleteRow.y
-                    } else {
-                        alignWithFirstChild(fileNode, rows)
-                    }
+                val siblings = siblingParentIds(parent.id, layerParentIds, upstreamFilter)
+                val parentOrder = orderIndexByParentId[parent.id] ?: Int.MAX_VALUE
+                val previousSiblingIds = siblings.filter { siblingId ->
+                    (orderIndexByParentId[siblingId] ?: Int.MAX_VALUE) < parentOrder
                 }
-                1 -> {
-                    // Position delete file:
-                    // Check if there's a sibling equality delete file (same parent manifest, similar position)
-                    val parentManifestId = nonSiblingEdges.find { it.toId == fileNode.id }?.fromId
-                    val siblingFiles = if (parentManifestId != null) {
-                        childrenByParent[parentManifestId]?.filterIsInstance<GraphNode.FileNode>() ?: emptyList()
-                    } else emptyList()
 
-                    val eqDeleteSibling = siblingFiles.firstOrNull { sibling ->
-                        sibling.id != fileNode.id && (sibling.data.content ?: 0) == 2
+                val siblingChildIds = previousSiblingIds
+                    .asSequence()
+                    .flatMap { siblingId ->
+                        sortedChildren(siblingId, childFilter).asSequence().map { it.id }
                     }
+                    .toSet()
 
-                    if (eqDeleteSibling != null) {
-                        // Place next to equality delete sibling (don't overlap, just nearby)
-                        // We'll handle exact positioning in overlap prevention
-                        fileNode.y = eqDeleteSibling.y
-                    } else {
-                        // Align with first position delete row
-                        val firstPosDeleteRow = rows.firstOrNull { it.content == 1 }
-                        if (firstPosDeleteRow != null) {
-                            fileNode.y = firstPosDeleteRow.y
-                        } else {
-                            alignWithFirstChild(fileNode, rows)
-                        }
-                    }
-                }
-                0 -> {
-                    // Data file: align with first data row unless position delete occupies that spot
-                    val firstDataRow = rows.firstOrNull { it.content == 0 }
-                    if (firstDataRow != null) {
-                        // Check if any position delete is at the same Y coordinate (already placed there)
-                        val posDeleteAtSameY = rows.any { row ->
-                            row.content == 1 && kotlin.math.abs(row.y - firstDataRow.y) < 1.0
-                        }
-                        if (posDeleteAtSameY) {
-                            // Place next to position delete (will be adjusted in overlap prevention)
-                            fileNode.y = firstDataRow.y
-                        } else {
-                            fileNode.y = firstDataRow.y
-                        }
-                    } else {
-                        alignWithFirstChild(fileNode, rows)
-                    }
-                }
+                // Prefer first exclusive child among siblings; if none are exclusive, use first child.
+                val anchorChild = children.firstOrNull { it.id !in siblingChildIds } ?: children.first()
+                parent.y = anchorChild.y
             }
         }
 
-        // Align manifests, snapshots, and metadata with their children using the selected strategy
-        fun alignParent(parent: GraphNode, children: List<GraphNode>) {
-            when (strategy) {
-                ParentAlignment.ALIGN_FIRST_CHILD -> alignWithFirstChild(parent, children)
-                ParentAlignment.CENTER_CHILDREN -> centerWithChildren(parent, children)
-            }
-        }
-
-        // Manifests
-        nodesById.values.filterIsInstance<GraphNode.ManifestNode>().forEach { manifest ->
-            val children = childrenByParent[manifest.id] ?: emptyList()
-            alignParent(manifest, children)
-        }
-
-        // Snapshots
-        nodesById.values.filterIsInstance<GraphNode.SnapshotNode>().forEach { snapshot ->
-            val children = childrenByParent[snapshot.id] ?: emptyList()
-            alignParent(snapshot, children)
-        }
-
-        // Metadata
-        nodesById.values.filterIsInstance<GraphNode.MetadataNode>().forEach { metadata ->
-            val children = childrenByParent[metadata.id] ?: emptyList()
-            alignParent(metadata, children)
-        }
-
-        // Table
-        nodesById.values.filterIsInstance<GraphNode.TableNode>().forEach { table ->
-            val children = childrenByParent[table.id] ?: emptyList()
-            alignParent(table, children)
-        }
+        // Child -> parent layering order
+        alignLayer(
+            parents = nodesById.values.filterIsInstance<GraphNode.FileNode>(),
+            upstreamFilter = { it is GraphNode.ManifestNode },
+            childFilter = { it is GraphNode.RowNode }
+        )
+        alignLayer(
+            parents = nodesById.values.filterIsInstance<GraphNode.ManifestNode>(),
+            upstreamFilter = { it is GraphNode.SnapshotNode },
+            childFilter = { it is GraphNode.FileNode }
+        )
+        alignLayer(
+            parents = nodesById.values.filterIsInstance<GraphNode.SnapshotNode>(),
+            upstreamFilter = { it is GraphNode.MetadataNode },
+            childFilter = { it is GraphNode.ManifestNode }
+        )
+        alignLayer(
+            parents = nodesById.values.filterIsInstance<GraphNode.MetadataNode>(),
+            upstreamFilter = { it is GraphNode.TableNode },
+            childFilter = { it is GraphNode.SnapshotNode }
+        )
+        alignLayer(
+            parents = nodesById.values.filterIsInstance<GraphNode.TableNode>(),
+            upstreamFilter = { false },
+            childFilter = { it is GraphNode.MetadataNode }
+        )
     }
 
     private fun preventOverlaps(nodesById: Map<String, GraphNode>) {

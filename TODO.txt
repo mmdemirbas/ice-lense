@@ -1,18 +1,3 @@
-LAYOUT
-
-Implement a good reasonable layout manually.
-1. Order: Decide order of nodes in each layer.
-   - Snapshot 1 data rows come before snapshot 2 data rows and so on. Data rows from different snapshots strictly don't interleave.
-   - In a snapshot scope:
-     - Rows: Equality delete rows come before data rows. Position delete rows come just after the data rows they delete.
-2. Layout:
-   - Equality delete files should be aligned with the first equality delete row they have.
-   - Position delete files should be next to the sibling equality delete files if they have any. Otherwise they will be aligned with the first child row.
-   - Data files should be aligned with the first child row, unless there is a position delete in that place (occurs in the case position delete have an equality delete sibling). In that case just place it next to the position delete.
-   - All other parents (manifest, snapshot, metadata) aligned with their first child, or could be centered to their children. I think both strategies will work. We could make it parametric and connect to a flag.
-
----
-
 - [MANUAL] Code cleanup & organization
 
 ---
