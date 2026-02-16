@@ -1,11 +1,5 @@
-GITHUB LINK
-
-Include a Github link at the top right corner of the toolbar. I could also include an about popup.
-
----
-
 DATA TABLE
-- Add a data table to show all data/delete rows under a selected node to all parent nodes. It should be sorted in the same order with the data rows, so we can easily reason about the final state.
+- Add a data table to show all data/delete rows under a selected node to all parent nodes. It should be sorted in the same order with the rows, so we can easily reason about the final state.
 
 ---
 

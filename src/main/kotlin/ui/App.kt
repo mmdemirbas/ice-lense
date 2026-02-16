@@ -8,6 +8,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -39,8 +41,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import model.*
 import service.GraphLayoutService
+import java.awt.Desktop
 import java.awt.Cursor
 import java.io.File
+import java.net.URI
 import java.nio.file.Paths
 import java.nio.file.NoSuchFileException
 import java.time.Instant
@@ -244,6 +248,7 @@ fun App() {
     var showRows by remember { mutableStateOf(true) }
     var isSelectMode by remember { mutableStateOf(prefs.getBoolean(PREF_IS_SELECT_MODE, true)) }
     var zoom by remember { mutableStateOf(prefs.getFloat(PREF_ZOOM, 1f)) }
+    var showAboutDialog by remember { mutableStateOf(false) }
 
     val sessionCache = remember { mutableMapOf<String, TableSession>() }
     val coroutineScope = rememberCoroutineScope()
@@ -782,6 +787,32 @@ fun App() {
                 }
 
                 Spacer(Modifier.weight(1f))
+
+                ToolbarGroup {
+                    fun openGithubLink() {
+                        runCatching {
+                            if (!Desktop.isDesktopSupported()) {
+                                error("Desktop browsing is not supported on this platform.")
+                            }
+                            Desktop.getDesktop().browse(URI("https://github.com/mmdemirbas/ice-lense"))
+                        }.onFailure { e ->
+                            errorMsg = "Failed to open GitHub link: ${e.message}"
+                        }
+                    }
+                    ToolbarIconButton(
+                        icon = Icons.AutoMirrored.Filled.HelpOutline,
+                        tooltip = "About",
+                        onClick = { showAboutDialog = true },
+                        modifier = Modifier.size(32.dp)
+                    )
+                    Box(Modifier.width(1.dp).height(16.dp).background(Color(0xFFCCCCCC)))
+                    ToolbarIconButton(
+                        icon = Icons.AutoMirrored.Filled.OpenInNew,
+                        tooltip = "Open GitHub",
+                        onClick = { openGithubLink() },
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
             }
             HorizontalDivider()
             val leftTopId = visibleAnchorToWindowId[ToolWindowAnchor.LEFT_TOP]
@@ -1079,6 +1110,42 @@ fun App() {
                 }
             }
 
+            }
+
+            if (showAboutDialog) {
+                val githubUrl = "https://github.com/mmdemirbas/ice-lense"
+                AlertDialog(
+                    onDismissRequest = { showAboutDialog = false },
+                    confirmButton = {
+                        TextButton(onClick = { showAboutDialog = false }) {
+                            Text("Close")
+                        }
+                    },
+                    title = { Text("About Ice Lens") },
+                    text = {
+                        Column {
+                            Text("A visual inspector for Apache Iceberg tables. It visualizes metadata, snapshots, manifests, and row-level delete relationships.")
+                            Spacer(Modifier.height(8.dp))
+                            Text("Author: Muhammed Demirbaş")
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                text = githubUrl,
+                                color = Color(0xFF1565C0),
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.clickable {
+                                    runCatching {
+                                        if (!Desktop.isDesktopSupported()) {
+                                            error("Desktop browsing is not supported on this platform.")
+                                        }
+                                        Desktop.getDesktop().browse(URI(githubUrl))
+                                    }.onFailure { e ->
+                                        errorMsg = "Failed to open GitHub link: ${e.message}"
+                                    }
+                                }
+                            )
+                        }
+                    }
+                )
             }
 
             if (draggingToolWindowId != null) {
