@@ -16,6 +16,16 @@ import java.io.File
 import java.net.URI
 
 object IcebergReader {
+    data class ReadError(
+        val message: String,
+        val stackTrace: String? = null,
+    )
+
+    data class ReadResult<T>(
+        val entries: List<T>,
+        val errors: List<ReadError> = emptyList(),
+    )
+
     private val json = Json { ignoreUnknownKeys = true }
 
     // 1. Read Metadata JSON
@@ -26,16 +36,16 @@ object IcebergReader {
     }
 
     // 2. Read Manifest List (Avro)
-    fun readManifestList(localPath: String): List<ManifestListEntry> {
+    fun readManifestList(localPath: String): ReadResult<ManifestListEntry> {
         return readAvro(localPath)
     }
 
     // 3. Read Manifest File (Avro)
-    fun readManifestFile(localPath: String): List<ManifestEntry> {
+    fun readManifestFile(localPath: String): ReadResult<ManifestEntry> {
         return readAvro(localPath)
     }
 
-    private inline fun <reified T : Any> readAvro(localPath: String): List<T> {
+    private inline fun <reified T : Any> readAvro(localPath: String): ReadResult<T> {
         val file = when {
             localPath.startsWith("file:") -> File(URI(localPath))
             else                          -> File(localPath)
@@ -44,21 +54,26 @@ object IcebergReader {
         // Parse file blocks into schema-aware GenericRecords
         return DataFileReader(file, GenericDatumReader<GenericRecord>()).use { reader ->
             val entries = mutableListOf<T>()
+            val errors = mutableListOf<ReadError>()
             val schema = Avro.schema<T>()
+            var rowIndex = 0
 
             reader.forEach { record ->
                 try {
                     @Suppress("DEPRECATION") entries.add(Avro.decodeFromGenericData(schema, record))
                 } catch (e: Exception) {
-                    System.err.println("Error parsing Avro record")
-                    System.err.println("File: $file")
-                    System.err.println("Schema: $schema")
-                    System.err.println("Record: $record")
-                    throw e
+                    val details = e.message ?: e::class.simpleName ?: "Unknown decode error"
+                    errors.add(
+                        ReadError(
+                            message = "Record #$rowIndex decode failed: $details",
+                            stackTrace = e.stackTraceToString(),
+                        )
+                    )
                 }
+                rowIndex++
             }
 
-            entries
+            ReadResult(entries = entries, errors = errors)
         }
     }
 }

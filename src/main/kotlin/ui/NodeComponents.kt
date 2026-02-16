@@ -23,9 +23,6 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-private fun metadataCardId(fileName: String): String =
-    fileName.removePrefix("v").removeSuffix(".metadata.json").toIntOrNull()?.toString() ?: "?"
-
 private fun manifestContentLabel(content: Int?): String =
     if (content == 1) "DELETE" else "DATA"
 
@@ -39,6 +36,14 @@ private fun rowContentLabel(content: Int): String = when (content) {
     1 -> "POS DELETE ROW"
     2 -> "EQ DELETE ROW"
     else -> "DATA ROW"
+}
+
+private fun isPrimaryMetadataFile(fileName: String): Boolean {
+    val base = fileName.removeSuffix(".metadata.json")
+    return fileName.endsWith(".metadata.json") &&
+        base.startsWith("v") &&
+        base.drop(1).all { it.isDigit() } &&
+        base.length > 1
 }
 
 private fun fileNameFromPath(path: String?): String {
@@ -67,7 +72,7 @@ private fun formatBytes(bytes: Long?): String {
 
 fun getGraphNodeColor(node: GraphNode): Color = when (node) {
     is GraphNode.TableNode    -> Color(0xFFD7CCC8)
-    is GraphNode.MetadataNode -> Color(0xFFE1BEE7)
+    is GraphNode.MetadataNode -> if (isPrimaryMetadataFile(node.fileName)) Color(0xFFE1BEE7) else Color(0xFFD7CFDE)
     is GraphNode.SnapshotNode -> Color(0xFFBBDEFB)
     is GraphNode.ManifestNode -> when (node.data.content) {
         1    -> Color(0xFFFFCDD2)
@@ -85,11 +90,12 @@ fun getGraphNodeColor(node: GraphNode): Color = when (node) {
         2    -> Color(0xFFFFF59D) // Equality delete (yellow)
         else -> Color(0xFFC8E6C9) // Data (same as data manifests/files)
     }
+    is GraphNode.ErrorNode    -> Color(0xFFFFEBEE)
 }
 
 fun getGraphNodeBorderColor(node: GraphNode): Color = when (node) {
     is GraphNode.TableNode    -> Color(0xFF5D4037)
-    is GraphNode.MetadataNode -> Color(0xFF8E24AA)
+    is GraphNode.MetadataNode -> if (isPrimaryMetadataFile(node.fileName)) Color(0xFF8E24AA) else Color(0xFF6F6180)
     is GraphNode.SnapshotNode -> Color(0xFF1976D2)
     is GraphNode.ManifestNode -> when (node.data.content) {
         1    -> Color(0xFFD32F2F)
@@ -107,6 +113,7 @@ fun getGraphNodeBorderColor(node: GraphNode): Color = when (node) {
         2    -> Color(0xFFF9A825) // Equality delete (yellow border)
         else -> Color(0xFF388E3C) // Data
     }
+    is GraphNode.ErrorNode    -> Color(0xFFB71C1C)
 }
 
 private val timestampFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
@@ -187,11 +194,12 @@ fun NodeTooltip(node: GraphNode) {
     ) {
         val title = when (node) {
             is GraphNode.TableNode -> "Table"
-            is GraphNode.MetadataNode -> "METADATA ${metadataCardId(node.fileName)}"
+            is GraphNode.MetadataNode -> "METADATA ${node.simpleId}"
             is GraphNode.SnapshotNode -> "SNAPSHOT ${node.simpleId}"
             is GraphNode.ManifestNode -> "MANIFEST ${node.simpleId}: ${manifestContentLabel(node.data.content)}"
             is GraphNode.FileNode -> "FILE ${node.simpleId}: ${fileContentLabel(node.data.content)}"
             is GraphNode.RowNode -> rowContentLabel(node.content)
+            is GraphNode.ErrorNode -> "ERROR"
         }
         
         Text(
@@ -246,6 +254,15 @@ fun NodeTooltip(node: GraphNode) {
                         DetailRow("...", "and ${node.data.size - 5} more", isDark = true)
                     }
                 }
+                is GraphNode.ErrorNode -> {
+                    DetailRow("Title", node.title, isDark = true)
+                    DetailRow("Stage", node.stage, isDark = true)
+                    DetailRow("Path", node.path, isDark = true)
+                    DetailRow("Message", node.message, isDark = true)
+                    if (!node.stackTrace.isNullOrBlank()) {
+                        DetailRow("Stack Trace", node.stackTrace, isDark = true)
+                    }
+                }
             }
         }
     }
@@ -281,7 +298,7 @@ fun TableCard(node: GraphNode.TableNode, isSelected: Boolean = false) {
 fun MetadataCard(node: GraphNode.MetadataNode, isSelected: Boolean = false) {
     val borderWidth = if (isSelected) 4.dp else 2.dp
     val borderColor = if (isSelected) Color.Black else getGraphNodeBorderColor(node)
-    val metadataId = metadataCardId(node.fileName)
+    val metadataId = node.simpleId.toString()
     Box(
         modifier = Modifier
         .size(node.width.dp, node.height.dp)
@@ -402,6 +419,27 @@ fun RowCard(node: GraphNode.RowNode, isSelected: Boolean = false) {
             if (node.data.size > 3) {
                 Text("...", fontSize = 10.sp, color = Color.Gray)
             }
+        }
+    }
+}
+
+@Composable
+fun ErrorCard(node: GraphNode.ErrorNode, isSelected: Boolean = false) {
+    val borderWidth = if (isSelected) 3.dp else 2.dp
+    val borderColor = if (isSelected) Color.Black else getGraphNodeBorderColor(node)
+    Box(
+        modifier = Modifier
+            .size(node.width.dp, node.height.dp)
+            .background(getGraphNodeColor(node), RoundedCornerShape(6.dp))
+            .border(BorderStroke(borderWidth, borderColor), RoundedCornerShape(6.dp))
+            .padding(6.dp)
+    ) {
+        Column(Modifier.fillMaxSize()) {
+            Text("ERROR", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color(0xFFB71C1C))
+            Text(node.title, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("Stage: ${node.stage}", fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(node.path, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(node.message, fontSize = 10.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
     }
 }

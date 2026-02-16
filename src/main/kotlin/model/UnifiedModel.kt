@@ -7,6 +7,26 @@ import java.nio.file.Path
 import kotlin.io.path.readText
 import kotlin.streams.asSequence
 
+data class UnifiedReadError(
+    val stage: String,
+    val path: String,
+    val message: String,
+    val stackTrace: String? = null,
+)
+
+private fun toError(stage: String, path: Path, throwable: Throwable): UnifiedReadError {
+    val msg = throwable.message ?: (throwable::class.simpleName ?: "Unknown error")
+    return UnifiedReadError(
+        stage = stage,
+        path = path.toString(),
+        message = msg,
+        stackTrace = throwable.stackTraceToString(),
+    )
+}
+
+private fun metadataVersionFromFileName(fileName: String): Int? =
+    fileName.removePrefix("v").removeSuffix(".metadata.json").toIntOrNull()
+
 fun UnifiedWarehouseModel(warehousePath: Path): UnifiedWarehouseModel {
     return UnifiedWarehouseModel(
         path = warehousePath,
@@ -23,16 +43,36 @@ fun UnifiedWarehouseModel(warehousePath: Path): UnifiedWarehouseModel {
 
 fun UnifiedTableModel(tablePath: Path): UnifiedTableModel {
     val metadataDir = tablePath.resolve("metadata")
-    val parsedMetadata = Files
-        .list(metadataDir)
-        .asSequence()
-        .filter { Files.isRegularFile(it) }
-        .filter { it.fileName.toString().endsWith(".metadata.json") }
-        .associateWith { IcebergReader.readTableMetadata(it.toString()) }
+    val tableReadErrors = mutableListOf<UnifiedReadError>()
+
+    val metadataFiles = runCatching {
+        Files
+            .list(metadataDir)
+            .asSequence()
+            .filter { Files.isRegularFile(it) }
+            .filter { it.fileName.toString().endsWith(".metadata.json") }
+            .toList()
+    }.getOrElse { e ->
+        tableReadErrors += toError("list-metadata-files", metadataDir, e)
+        emptyList()
+    }
+
+    val parsedMetadata = mutableListOf<Pair<Path, TableMetadata>>()
+    metadataFiles.forEach { metadataPath ->
+        runCatching {
+            IcebergReader.readTableMetadata(metadataPath.toString())
+        }.onSuccess { metadata ->
+            parsedMetadata += metadataPath to metadata
+        }.onFailure { e ->
+            tableReadErrors += toError("read-metadata-json", metadataPath, e)
+        }
+    }
 
     // Parse snapshots once to avoid duplicate parsing of the same snapshots
-    val parsedSnapshots = parsedMetadata.values
+    val parsedSnapshots = parsedMetadata
+        .map { it.second }
         .flatMap { it.snapshots }
+        .filter { it.snapshotId != null }
         .distinctBy { it.snapshotId }
         .associate { snapshot ->
             snapshot.snapshotId to UnifiedSnapshot(
@@ -41,59 +81,109 @@ fun UnifiedTableModel(tablePath: Path): UnifiedTableModel {
             )
         }
 
-    return UnifiedTableModel(
-        path = tablePath,
-        name = tablePath.fileName.toString(),
-        versionHint = metadataDir.resolve("version-hint.text").readText().trim(),
-        metadatas = parsedMetadata.map { (path, metadata) ->
+    val versionHintPath = metadataDir.resolve("version-hint.text")
+    val versionHint = runCatching { versionHintPath.readText().trim() }
+        .getOrElse { e ->
+            tableReadErrors += toError("read-version-hint", versionHintPath, e)
+            "N/A"
+        }
+
+    val orderedMetadatas = parsedMetadata.map { (path, metadata) ->
             UnifiedMetadata(
                 path = path,
                 metadata = metadata,
                 rawJson = runCatching { path.readText() }.getOrNull(),
                 snapshots = metadata.snapshots
-                    .map { parsedSnapshots[it.snapshotId]!! }
+                    .mapNotNull { parsedSnapshots[it.snapshotId] }
                     .sortedBy { it.metadata.timestampMs },
             )
-        }.sortedBy {
-            it.path.fileName.toString().removePrefix("v").removeSuffix(".metadata.json").toInt()
-        },
+        }.sortedWith(
+            compareBy<UnifiedMetadata>(
+                { metadataVersionFromFileName(it.path.fileName.toString()) == null },
+                { metadataVersionFromFileName(it.path.fileName.toString()) ?: Int.MAX_VALUE },
+                { it.metadata.lastUpdatedMs ?: Long.MAX_VALUE },
+                { runCatching { Files.getLastModifiedTime(it.path).toMillis() }.getOrDefault(Long.MAX_VALUE) },
+                { it.path.fileName.toString() },
+            )
+        )
+
+    return UnifiedTableModel(
+        path = tablePath,
+        name = tablePath.fileName.toString(),
+        versionHint = versionHint,
+        metadatas = orderedMetadatas,
+        readErrors = tableReadErrors,
     )
 }
 
 fun resolveForceRelative(start: Path, pathToTakeOnlyLastPart: String?): Path {
-    // Get the last part of the "pathToTakeOnlyLastPart" string, and resolve it relative to the "tablePath"
-    return start.resolve(pathToTakeOnlyLastPart!!.removeSuffix("/").substringAfterLast("/"))
+    // Get the last part of the path and resolve it relative to start. Fall back to the start directory.
+    val tail = pathToTakeOnlyLastPart
+        ?.removeSuffix("/")
+        ?.substringAfterLast("/")
+        ?.takeIf { it.isNotBlank() }
+        ?: return start
+    return start.resolve(tail)
 }
 
 fun UnifiedSnapshot(snapshotPath: Path, snapshot: Snapshot): UnifiedSnapshot {
-    val manifestList = IcebergReader.readManifestList(snapshotPath.toString())
+    val manifestListResult = runCatching { IcebergReader.readManifestList(snapshotPath.toString()) }
+    val snapshotReadErrors = mutableListOf<UnifiedReadError>()
+    val manifestList = manifestListResult.getOrElse { e ->
+        snapshotReadErrors += toError("read-manifest-list-file", snapshotPath, e)
+        IcebergReader.ReadResult(entries = emptyList())
+    }
+    snapshotReadErrors += manifestList.errors.map { error ->
+        UnifiedReadError(
+            stage = "decode-manifest-list-entry",
+            path = snapshotPath.toString(),
+            message = error.message,
+            stackTrace = error.stackTrace,
+        )
+    }
     return UnifiedSnapshot(
         path = snapshotPath,
         metadata = snapshot,
-        manifestLists = manifestList.map { manifest ->
+        manifestLists = manifestList.entries.map { manifest ->
             val metadataDir = snapshotPath.parent
             UnifiedManifest(
                 resolveForceRelative(metadataDir, manifest.manifestPath),
                 manifest,
             )
         },
+        readErrors = snapshotReadErrors,
     )
 }
 
 fun UnifiedManifest(manifestPath: Path, manifest: ManifestListEntry): UnifiedManifest {
-    val dataFiles = IcebergReader.readManifestFile(manifestPath.toString())
+    val manifestFileResult = runCatching { IcebergReader.readManifestFile(manifestPath.toString()) }
+    val manifestReadErrors = mutableListOf<UnifiedReadError>()
+    val dataFiles = manifestFileResult.getOrElse { e ->
+        manifestReadErrors += toError("read-manifest-file", manifestPath, e)
+        IcebergReader.ReadResult(entries = emptyList())
+    }
+    manifestReadErrors += dataFiles.errors.map { error ->
+        UnifiedReadError(
+            stage = "decode-manifest-entry",
+            path = manifestPath.toString(),
+            message = error.message,
+            stackTrace = error.stackTrace,
+        )
+    }
     return UnifiedManifest(
         path = manifestPath,
         metadata = manifest,
-        manifests = dataFiles.map { dataFile ->
+        manifests = dataFiles.entries.map { dataFile ->
             val metadataDirPrefix = manifest.manifestPath.orEmpty().substringBeforeLast('/')
             val tableDirPrefix = metadataDirPrefix.substringBeforeLast('/')
             val dataFilePathInFile = dataFile.dataFile?.filePath.orEmpty()
             val dataFilePathRelative =
                 dataFilePathInFile.removePrefix(tableDirPrefix).removePrefix("/")
-            val dataFilePathResolved = manifestPath.parent.parent.resolve(dataFilePathRelative)
+            val dataRoot = manifestPath.parent?.parent ?: manifestPath.parent ?: manifestPath
+            val dataFilePathResolved = dataRoot.resolve(dataFilePathRelative)
             UnifiedDataFile(path = dataFilePathResolved, metadata = dataFile)
         },
+        readErrors = manifestReadErrors,
     )
 }
 
@@ -107,6 +197,7 @@ data class UnifiedTableModel(
     val name: String,
     val versionHint: String,
     val metadatas: List<UnifiedMetadata>,
+    val readErrors: List<UnifiedReadError> = emptyList(),
 )
 
 data class UnifiedMetadata(
@@ -120,12 +211,14 @@ data class UnifiedSnapshot(
     val path: Path,
     val metadata: Snapshot,
     val manifestLists: List<UnifiedManifest>,
+    val readErrors: List<UnifiedReadError> = emptyList(),
 )
 
 data class UnifiedManifest(
     val path: Path,
     val metadata: ManifestListEntry,
     val manifests: List<UnifiedDataFile>,
+    val readErrors: List<UnifiedReadError> = emptyList(),
 )
 
 data class UnifiedDataFile(

@@ -517,6 +517,7 @@ fun GraphCanvas(
                                 is GraphNode.ManifestNode -> ManifestCard(node, isSelected = isActive)
                                 is GraphNode.FileNode     -> FileCard(node, isSelected = isActive)
                                 is GraphNode.RowNode      -> RowCard(node, isSelected = isActive)
+                                is GraphNode.ErrorNode    -> ErrorCard(node, isSelected = isActive)
                             }
                         }
                     }

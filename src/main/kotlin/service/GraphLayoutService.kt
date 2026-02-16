@@ -62,8 +62,11 @@ object GraphLayoutService {
         // Registry to map long Iceberg paths to simple IDs
         var nextFileId = 1
         val filePathToSimpleId = mutableMapOf<String, Int>()
+        var nextMetadataSimpleId = 1
         var nextSnapshotSimpleId = 1
         var nextManifestSimpleId = 1
+        var nextErrorSimpleId = 1
+        val seenErrorKeys = mutableSetOf<String>()
 
         fun normalizeFilePath(path: String): String {
             val trimmed = path.trim()
@@ -92,6 +95,28 @@ object GraphLayoutService {
             val simpleId = nextFileId++
             registerFilePathAlias(trimmed, simpleId)
             return simpleId
+        }
+
+        fun addErrorNode(parentId: String, title: String, error: UnifiedReadError) {
+            val dedupeKey = "$parentId|$title|${error.stage}|${error.path}|${error.message}"
+            if (!seenErrorKeys.add(dedupeKey)) return
+            val errorNodeId = "err_${nextErrorSimpleId++}_${parentId.hashCode()}_${error.stage.hashCode()}"
+            if (elkNodes.containsKey(errorNodeId)) return
+            elkNodes[errorNodeId] = createElkNode(root, errorNodeId, 280.0, 100.0)
+            logicalNodes[errorNodeId] = GraphNode.ErrorNode(
+                id = errorNodeId,
+                title = title,
+                stage = error.stage,
+                path = error.path,
+                message = error.message,
+                stackTrace = error.stackTrace,
+            )
+            ElkGraphUtil.createSimpleEdge(elkNodes[parentId], elkNodes[errorNodeId])
+            edges.add(GraphEdge("e_err_${parentId}_$errorNodeId", parentId, errorNodeId))
+        }
+
+        tableModel.readErrors.forEach { error ->
+            addErrorNode(tableNodeId, "TABLE READ ERROR", error)
         }
 
         // Assign simple IDs for all file paths upfront so delete rows can always resolve target file IDs.
@@ -136,8 +161,9 @@ object GraphLayoutService {
             val meta = metadata.metadata
             val mId = "meta_${fileName}"
             if (!elkNodes.containsKey(mId)) {
+                val simpleMetadataId = nextMetadataSimpleId++
                 elkNodes[mId] = createElkNode(root, mId, 240.0, 96.0)
-                logicalNodes[mId] = GraphNode.MetadataNode(mId, fileName, meta, metadata.rawJson)
+                logicalNodes[mId] = GraphNode.MetadataNode(mId, simpleMetadataId, fileName, meta, metadata.rawJson)
             }
             val tableEdgeId = "e_table_${tableNodeId}_to_$mId"
             if (edges.none { it.id == tableEdgeId }) {
@@ -159,6 +185,9 @@ object GraphLayoutService {
                     val simpleSnapshotId = nextSnapshotSimpleId++
                     elkNodes[sId] = createElkNode(root, sId, 210.0, 84.0)
                     logicalNodes[sId] = GraphNode.SnapshotNode(sId, snap, simpleSnapshotId)
+                }
+                snapshot.readErrors.forEach { error ->
+                    addErrorNode(sId, "SNAPSHOT READ ERROR", error)
                 }
 
                 val snapEdgeId = "e_snap_${mId}_to_$sId"
@@ -182,6 +211,9 @@ object GraphLayoutService {
                         val simpleManifestId = nextManifestSimpleId++
                         elkNodes[manId] = createElkNode(root, manId, 200.0, 80.0)
                         logicalNodes[manId] = GraphNode.ManifestNode(manId, manifest, simpleManifestId)
+                    }
+                    unifiedManifest.readErrors.forEach { error ->
+                        addErrorNode(manId, "MANIFEST READ ERROR", error)
                     }
 
                     val manEdgeId = "e_man_${sId}_to_$manId"
@@ -267,7 +299,16 @@ object GraphLayoutService {
                                                     }
                                                 }
                                         } catch (e: Exception) {
-                                            println("DuckDB Graph Read Error: ${e.message}")
+                                            addErrorNode(
+                                                fId,
+                                                "ROW READ ERROR",
+                                                UnifiedReadError(
+                                                    stage = "read-data-file-rows",
+                                                    path = localFile.path,
+                                                    message = e.message ?: (e::class.simpleName ?: "Unknown error"),
+                                                    stackTrace = e.stackTraceToString(),
+                                                )
+                                            )
                                         }
                                     }
                                 }
@@ -322,8 +363,8 @@ object GraphLayoutService {
         val metadataComparator = Comparator<GraphNode> { a, b ->
             val ma = a as? GraphNode.MetadataNode
             val mb = b as? GraphNode.MetadataNode
-            val va = ma?.fileName?.removePrefix("v")?.removeSuffix(".metadata.json")?.toIntOrNull() ?: Int.MAX_VALUE
-            val vb = mb?.fileName?.removePrefix("v")?.removeSuffix(".metadata.json")?.toIntOrNull() ?: Int.MAX_VALUE
+            val va = ma?.simpleId ?: Int.MAX_VALUE
+            val vb = mb?.simpleId ?: Int.MAX_VALUE
             va.compareTo(vb)
         }
 
@@ -518,6 +559,7 @@ object GraphLayoutService {
                 rowNode.y = currentY
             }
         }
+
     }
 
     private fun alignParentsWithChildren(
@@ -572,6 +614,9 @@ object GraphLayoutService {
             val orderIndexByParentId = orderedParents
                 .mapIndexed { index, parent -> parent.id to index }
                 .toMap()
+            val hasChildrenByParentId = orderedParents.associate { parent ->
+                parent.id to sortedChildren(parent.id, childFilter).isNotEmpty()
+            }
 
             orderedParents.forEach { parent ->
                 val children = sortedChildren(parent.id, childFilter)
@@ -594,6 +639,60 @@ object GraphLayoutService {
                 val anchorChild = children.firstOrNull { it.id !in siblingChildIds } ?: children.first()
                 parent.y = anchorChild.y
             }
+
+//            // Fallback only for parents with no children:
+//            // preserve parent-defined order by positioning them between neighboring anchored parents.
+//            var index = 0
+//            while (index < orderedParents.size) {
+//                if (hasChildrenByParentId[orderedParents[index].id] == true) {
+//                    index++
+//                    continue
+//                }
+//
+//                val start = index
+//                while (index + 1 < orderedParents.size && hasChildrenByParentId[orderedParents[index + 1].id] == false) {
+//                    index++
+//                }
+//                val end = index
+//
+//                val prevAnchorIndex = (start - 1 downTo 0).firstOrNull {
+//                    hasChildrenByParentId[orderedParents[it].id] == true
+//                }
+//                val nextAnchorIndex = (end + 1 until orderedParents.size).firstOrNull {
+//                    hasChildrenByParentId[orderedParents[it].id] == true
+//                }
+//
+//                val runSize = end - start + 1
+//                val step = 24.0
+//
+//                when {
+//                    prevAnchorIndex != null && nextAnchorIndex != null -> {
+//                        val y0 = orderedParents[prevAnchorIndex].y
+//                        val y1 = orderedParents[nextAnchorIndex].y
+//                        val delta = (y1 - y0) / (runSize + 1)
+//                        for (offset in 0 until runSize) {
+//                            orderedParents[start + offset].y = y0 + delta * (offset + 1)
+//                        }
+//                    }
+//                    prevAnchorIndex != null -> {
+//                        val y0 = orderedParents[prevAnchorIndex].y
+//                        for (offset in 0 until runSize) {
+//                            orderedParents[start + offset].y = y0 + step * (offset + 1)
+//                        }
+//                    }
+//                    nextAnchorIndex != null -> {
+//                        val y1 = orderedParents[nextAnchorIndex].y
+//                        for (offset in runSize - 1 downTo 0) {
+//                            orderedParents[start + offset].y = y1 - step * (runSize - offset)
+//                        }
+//                    }
+//                    else -> {
+//                        // No anchored parents in this layer. Keep existing y positions.
+//                    }
+//                }
+//
+//                index++
+//            }
         }
 
         // Child -> parent layering order

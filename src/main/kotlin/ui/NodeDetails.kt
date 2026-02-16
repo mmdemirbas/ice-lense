@@ -28,10 +28,7 @@ import model.SnapshotLogEntry
 
 private fun nodeTitle(node: GraphNode): String = when (node) {
     is GraphNode.TableNode -> "TABLE ${node.summary.tableName}"
-    is GraphNode.MetadataNode -> {
-        val metadataId = node.fileName.removePrefix("v").removeSuffix(".metadata.json").toIntOrNull()
-        "METADATA ${metadataId ?: "?"}"
-    }
+    is GraphNode.MetadataNode -> "METADATA ${node.simpleId}"
     is GraphNode.SnapshotNode -> "SNAPSHOT ${node.simpleId}"
     is GraphNode.ManifestNode -> "MANIFEST ${node.simpleId}: ${if (node.data.content == 1) "DELETE" else "DATA"}"
     is GraphNode.FileNode -> "FILE ${node.simpleId}: ${when (node.data.content ?: 0) {
@@ -44,6 +41,7 @@ private fun nodeTitle(node: GraphNode): String = when (node) {
         2 -> "EQ DELETE ROW"
         else -> "DATA ROW"
     }
+    is GraphNode.ErrorNode -> "ERROR ${node.title}"
 }
 
 private fun normalizeText(value: String?): String {
@@ -283,9 +281,7 @@ fun NodeDetailsContent(graphModel: GraphModel?, selectedNodeIds: Set<String>) {
                         val summary = node.summary
                         val metadataChildren = children
                             .filterIsInstance<GraphNode.MetadataNode>()
-                            .sortedBy {
-                                it.fileName.removePrefix("v").removeSuffix(".metadata.json").toIntOrNull() ?: Int.MAX_VALUE
-                            }
+                            .sortedBy { it.simpleId }
                         val metadataNodeByFileName = metadataChildren.associateBy { it.fileName }
                         val versionFileNames = summary.metadataVersions.map { it.fileName }.toSet()
                         val mergedMetadataRows = buildList {
@@ -307,14 +303,12 @@ fun NodeDetailsContent(graphModel: GraphModel?, selectedNodeIds: Set<String>) {
                             metadataChildren
                                 .filter { it.fileName !in versionFileNames }
                                 .forEachIndexed { index, metadataNode ->
-                                    val fallbackVersion =
-                                        metadataNode.fileName.removePrefix("v").removeSuffix(".metadata.json").toIntOrNull()
                                     add(
                                         listOf(
                                             "${summary.metadataVersions.size + index + 1}",
                                             metadataNode.id,
                                             metadataNode.fileName,
-                                            "${fallbackVersion ?: "N/A"}",
+                                            "N/A",
                                             "N/A",
                                             formatTimestamp(metadataNode.data.lastUpdatedMs),
                                             "${metadataNode.data.snapshots.size}",
@@ -890,6 +884,32 @@ fun NodeDetailsContent(graphModel: GraphModel?, selectedNodeIds: Set<String>) {
                             node.data.entries
                                 .sortedBy { it.key }
                                 .forEach { (k, v) -> DetailRow(k, "$v") }
+                        }
+                    }
+
+                    is GraphNode.ErrorNode -> {
+                        DetailTable {
+                            DetailRow("Property", "Value", isHeader = true)
+                            DetailRow("Title", node.title)
+                            DetailRow("Stage", node.stage)
+                            DetailRow("Path", node.path)
+                            DetailRow("Message", node.message)
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        SectionTitle("Stack Trace")
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
+                                .border(1.dp, Color.LightGray, androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
+                                .background(Color(0xFFF7F7F7))
+                                .padding(8.dp)
+                        ) {
+                            Text(
+                                text = node.stackTrace ?: "N/A",
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp
+                            )
                         }
                     }
                 }

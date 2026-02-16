@@ -264,7 +264,7 @@ private fun findPathToNode(graph: GraphModel, targetId: String): List<String> {
 private fun getNodeLabel(node: GraphNode): String {
     return when (node) {
         is GraphNode.TableNode -> "Table: ${node.summary.tableName}"
-        is GraphNode.MetadataNode -> "Meta: ${node.fileName}"
+        is GraphNode.MetadataNode -> "Meta ${node.simpleId}: ${node.fileName}"
         is GraphNode.SnapshotNode -> "Snap: ${node.data.snapshotId}"
         is GraphNode.ManifestNode -> "Manifest (${node.data.addedFilesCount} adds)"
         is GraphNode.FileNode     -> "File ${node.simpleId}: ${
@@ -272,5 +272,6 @@ private fun getNodeLabel(node: GraphNode): String {
         }"
 
         is GraphNode.RowNode      -> "Row: ${node.data.values.firstOrNull() ?: "..."}"
+        is GraphNode.ErrorNode    -> "Error: ${node.title}"
     }
 }

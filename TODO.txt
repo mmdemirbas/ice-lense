@@ -1,3 +1,21 @@
+Good. Just a few tweaks:
++ I see 3 snapshot read errors with the same message "/Users/md/code/spark-kit/iceberg/data/db/upsert_tbl/metadata/snap-5422266025700455132-2-37c9df46-4b17-4f1b-b974-5719e1de71a9.avro (No such file or directory)" -> Is this an error or expected behaviour? Why we have 3 duplicates? If this is not correct, please fix it.
++ We should include the full exception stack trace in the details view also.
+- Snapshot read error cards are not aligned with the parent snapshot card. We should put the error cards in the correct order. For example if the error card belongs to snapshot 7, then it should be placed after snapshot 6 manifests and before the snapshot 8 manifests. Applies to the other node types similarly.
++ I see the table has metadata json files named with uuids, not like v1, v2 etc. I don't know how this could happen. Maybe due to Apache Iceberg compaction or something else. I remember we build a logic on this naming scheme. As a result I have unknown metadata nodes with no ID. We should fix it and build a more robust logic.
+
++ ok this is better. Now there are two groups of metadata. One is named as v1 v2 etc. Other is named with uuids. Keep coloring and ordering of the v*.metadata.json files as is. They are first citizen. The second group metadata nodes should be colored with a less-saturated tone to indicate they are not first-citizen. I've not decided how to place them on the graph yet, but we must avoid overlapping with the actual first citizen metadata nodes.
+- We should handle the case regarding the metadata nodes and snapshot nodes with zero data rows. We should consider their relative order in the parent's list to find their correct position. This will guarantee that the metadata-1 will be always on the top and a snapshot with no data files / rows will be still placed correctly.
+
+- You didn't follow what I meant. You should still try to align each parent node with its first exclusive child or any first child if there are no exclusive children. Do not break this behaviour.
+BUT if there is no child (even non-exclusive) for a metadata or snapshot node, then place it according to the order defiend in the parent.
+For example, v8.metadata.json file defines a list of snapshots and we know the sequence numbers there. It dictates the order. Even if we fail to read snapshot-7 file, we still should be able to place it in the correct position.
+I know there are multiple metadata files having the same snapshots as children. We could assume they will define a consistent order. If not, we can report that as a warning and still continue with honoring the latest most up-to-date information and ignoring the older ones.
+
+- Metadata order is good now.
+  But snapshot order is not.
+  Snapshot 7 is shown between 2 and 3. It has a read error so there is no children to refer. We should use the order from the parent as I mentioned in my previous comment. By "the order from the parent", I mean the sequence number written in the most up-to-date metadata file. If it doesn't contain all the snapshots we will be checking from the newest one to the oldest one until finding the sequence number of all the snapshots.
+
 --- NEXT ITEMS ----------------------------------------------------------------
 
 - Horizontal space between layers is too much. Make the nodes closer to each other horizontally.
@@ -7,6 +25,18 @@
 
 MORE CONTEXT
 - Show data file number and position index on data rows. It will make the position delete targets easier to identify.
+
+---
+
+ERROR REPORTING
+If there is an error shown on the graph canvas ( red message at the bottom ), then we should make it selectable so the user can copy it or its parts.
+Also we should include the whole exception trace optionally. I mean the red error message should be shown like now, but we should include a collapsible pane or a proper UI component to access the full exception stack trace. It will be very helpful for debugging and reporting issues.
+
+---
+
+GITHUB LINK
+
+Include a Github link at the top right corner of the toolbar. I could also include an about popup.
 
 ---
 

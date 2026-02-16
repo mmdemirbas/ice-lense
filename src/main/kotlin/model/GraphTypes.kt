@@ -78,6 +78,7 @@ sealed class GraphNode(
 
     data class MetadataNode(
         override val id: String,
+        val simpleId: Int,
         val fileName: String,
         val data: TableMetadata,
         val rawJson: String? = null,
@@ -120,6 +121,17 @@ sealed class GraphNode(
     ) : GraphNode(id, initialX, initialY, 200.0, 80.0) {
         val isDelete: Boolean get() = content > 0
     }
+
+    data class ErrorNode(
+        override val id: String,
+        val title: String,
+        val stage: String,
+        val path: String,
+        val message: String,
+        val stackTrace: String? = null,
+        val initialX: Double = 0.0,
+        val initialY: Double = 0.0,
+    ) : GraphNode(id, initialX, initialY, 280.0, 100.0)
 }
 
 data class GraphEdge(
