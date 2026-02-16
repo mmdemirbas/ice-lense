@@ -1,5 +1,10 @@
 --- NEXT ITEMS ----------------------------------------------------------------
 
+- Horizontal space between layers is too much. Make the nodes closer to each other horizontally.
+- Vertical space between data nodes is too much. Make them closer to each other. Make it just enough to separate two successive cards.
+
+---
+
 MORE CONTEXT
 - Show data file number and position index on data rows. It will make the position delete targets easier to identify.
 

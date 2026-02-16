@@ -42,25 +42,23 @@ object IcebergReader {
         }
 
         // Parse file blocks into schema-aware GenericRecords
-        val datumReader = GenericDatumReader<GenericRecord>()
-        val dataFileReader = DataFileReader(file, datumReader)
-        val entries = mutableListOf<T>()
+        return DataFileReader(file, GenericDatumReader<GenericRecord>()).use { reader ->
+            val entries = mutableListOf<T>()
+            val schema = Avro.schema<T>()
 
-        val schema = Avro.schema<T>()
-
-        dataFileReader.forEach { record ->
-            try {
-                @Suppress("DEPRECATION") entries.add(Avro.decodeFromGenericData(schema, record))
-            } catch (e: Exception) {
-                System.err.println("Error parsing Avro record")
-                System.err.println("File: $file")
-                System.err.println("Schema: $schema")
-                System.err.println("Record: $record")
-                throw e
+            reader.forEach { record ->
+                try {
+                    @Suppress("DEPRECATION") entries.add(Avro.decodeFromGenericData(schema, record))
+                } catch (e: Exception) {
+                    System.err.println("Error parsing Avro record")
+                    System.err.println("File: $file")
+                    System.err.println("Schema: $schema")
+                    System.err.println("Record: $record")
+                    throw e
+                }
             }
-        }
 
-        dataFileReader.close()
-        return entries
+            entries
+        }
     }
 }
