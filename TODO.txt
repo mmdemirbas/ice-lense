@@ -4,11 +4,7 @@ DATA TABLE
 ---
 
 UI BUGS
-- Pinch zoom is not working.
-
----
-
-
+- Pinch zoom is not working (trackpad two finger gesture).
 
 
 ---- FUTURE WORK ------------------------------------------------------------

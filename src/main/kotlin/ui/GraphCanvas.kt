@@ -73,6 +73,8 @@ fun GraphCanvas(
     var activeTooltipNodeId by remember { mutableStateOf<String?>(null) }
     var marqueeStart by remember { mutableStateOf<Offset?>(null) }
     var marqueeEnd by remember { mutableStateOf<Offset?>(null) }
+    var marqueeToggleSelection by remember { mutableStateOf(false) }
+    var shiftPressedNow by remember { mutableStateOf(false) }
 
     data class GraphExtents(val minX: Float, val minY: Float, val maxX: Float, val maxY: Float) {
         val width: Float get() = (maxX - minX).coerceAtLeast(1f)
@@ -195,6 +197,7 @@ fun GraphCanvas(
                     while (true) {
                         val event = awaitPointerEvent()
                         val changes = event.changes
+                        shiftPressedNow = event.keyboardModifiers.isShiftPressed
                         
                         if (event.type == PointerEventType.Scroll) {
                             val delta = changes.first().scrollDelta
@@ -267,6 +270,7 @@ fun GraphCanvas(
                         onDragStart = { offset ->
                             marqueeStart = offset
                             marqueeEnd = offset
+                            marqueeToggleSelection = shiftPressedNow
                         },
                         onDragEnd = {
                             if (marqueeStart != null && marqueeEnd != null) {
@@ -291,16 +295,40 @@ fun GraphCanvas(
                                     )
                                 }.map { it.id }.toSet()
 
-                                onSelectionChange(selected)
+                                if (marqueeToggleSelection) {
+                                    val next = selectedNodeIds.toMutableSet()
+                                    selected.forEach { id ->
+                                        if (!next.add(id)) next.remove(id)
+                                    }
+                                    onSelectionChange(next)
+                                } else {
+                                    onSelectionChange(selected)
+                                }
                             }
                             marqueeStart = null
                             marqueeEnd = null
+                            marqueeToggleSelection = false
                         }
                     ) { change, _ ->
                         change.consume()
                         marqueeEnd = change.position
+                        marqueeToggleSelection = shiftPressedNow
                     }
                 }
+            }
+            .pointerInput(hoveredNodeId) {
+                detectTapGestures(
+                    onTap = {
+                        if (hoveredNodeId == null) {
+                            onSelectionChange(emptySet())
+                        }
+                    },
+                    onDoubleTap = {
+                        if (hoveredNodeId == null) {
+                            onEmptyAreaDoubleClick()
+                        }
+                    }
+                )
             }) {
         val viewportWidth = constraints.maxWidth.toFloat()
         val viewportHeight = constraints.maxHeight.toFloat()
@@ -437,12 +465,7 @@ fun GraphCanvas(
                 translationY = offsetAnim.value.y
                 transformOrigin = TransformOrigin(0f, 0f)
             }) {
-            Canvas(modifier = Modifier.fillMaxSize().pointerInput(Unit) {
-                detectTapGestures(
-                    onTap = { onSelectionChange(emptySet()) },
-                    onDoubleTap = { onEmptyAreaDoubleClick() }
-                )
-            }) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
                 val activeNodeIds = if (hoveredNodeId != null) setOf(hoveredNodeId!!) else selectedNodeIds
 
                 visibleEdges.forEach { edge ->
@@ -462,6 +485,7 @@ fun GraphCanvas(
 
             visibleNodes.forEach { node ->
                 Box(modifier = Modifier.offset { IntOffset(node.x.toInt(), node.y.toInt()) }) {
+                    var pickSelectionArmed by remember(node.id) { mutableStateOf(false) }
                     Box(
                         modifier = Modifier
                             .pointerInput(node.id) {
@@ -474,25 +498,30 @@ fun GraphCanvas(
                                             if (hoveredNodeId == node.id) {
                                                 hoveredNodeId = null
                                             }
+                                        } else if (event.type == PointerEventType.Press) {
+                                            pickSelectionArmed =
+                                                event.keyboardModifiers.isMetaPressed || event.keyboardModifiers.isCtrlPressed
                                         }
                                     }
                                 }
                             }
-                            .pointerInput(node.id + "_interaction") {
+                            .pointerInput(node.id, selectedNodeIds, localZoom) {
                                 detectDragGestures(
                                     onDragStart = {
-                                        if (!selectedNodeIds.contains(node.id)) {
+                                        if (!pickSelectionArmed && !selectedNodeIds.contains(node.id)) {
                                             onSelectionChange(setOf(node.id))
                                         }
                                     }
-                                    ) { change, dragAmount ->
-                                        change.consume()
-                                        val dx = dragAmount.x
-                                        val dy = dragAmount.y
+                                ) { change, dragAmount ->
+                                    change.consume()
+                                    val dx = dragAmount.x
+                                    val dy = dragAmount.y
 
-                                        if (selectedNodeIds.contains(node.id)) {
-                                            selectedNodes.forEach { n ->
-                                                n.x += dx
+                                    val currentSelectedIds = selectedNodeIds
+                                    val currentSelectedNodes = graph.nodes.filter { it.id in currentSelectedIds }
+                                    if (node.id in currentSelectedIds) {
+                                        currentSelectedNodes.forEach { n ->
+                                            n.x += dx
                                             n.y += dy
                                         }
                                     } else {
@@ -502,11 +531,33 @@ fun GraphCanvas(
                                     }
                                 }
                             }
-                            .pointerInput(node.id + "_tap") {
+                            .pointerInput(node.id, selectedNodeIds) {
                                 detectTapGestures(
-                                    onTap = { onSelectionChange(setOf(node.id)) },
+                                    onTap = {
+                                        if (pickSelectionArmed) {
+                                            val nextSelection = if (selectedNodeIds.contains(node.id)) {
+                                                selectedNodeIds - node.id
+                                            } else {
+                                                selectedNodeIds + node.id
+                                            }
+                                            onSelectionChange(nextSelection)
+                                        } else {
+                                            onSelectionChange(setOf(node.id))
+                                        }
+                                        pickSelectionArmed = false
+                                    },
                                     onDoubleTap = {
-                                        onSelectionChange(setOf(node.id))
+                                        if (pickSelectionArmed) {
+                                            val nextSelection = if (selectedNodeIds.contains(node.id)) {
+                                                selectedNodeIds - node.id
+                                            } else {
+                                                selectedNodeIds + node.id
+                                            }
+                                            onSelectionChange(nextSelection)
+                                        } else {
+                                            onSelectionChange(setOf(node.id))
+                                        }
+                                        pickSelectionArmed = false
                                         onNodeDoubleClick(node)
                                     }
                                 )
