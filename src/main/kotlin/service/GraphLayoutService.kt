@@ -271,6 +271,8 @@ object GraphLayoutService {
                                                 .forEachIndexed { rIdx, rowData ->
                                                     val enrichedData = mutableMapOf<String, Any>()
                                                     val contentType = entry.dataFile?.content ?: 0
+                                                    enrichedData["file_no"] = simpleId
+                                                    enrichedData["row_idx"] = rIdx
                                                     if (contentType > 0 && rowData.cells.containsKey("file_path")) {
                                                         val targetPath =
                                                             rowData.cells["file_path"].toString()
@@ -278,6 +280,7 @@ object GraphLayoutService {
                                                             ?: filePathToSimpleId[normalizeFilePath(targetPath)]
                                                             ?: "?"
                                                         enrichedData["target_file"] = "File $targetId"
+                                                        enrichedData["target_file_no"] = targetId
                                                     }
                                                     enrichedData.putAll(rowData.cells)
 

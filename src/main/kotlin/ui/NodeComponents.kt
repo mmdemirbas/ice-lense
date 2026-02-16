@@ -390,6 +390,10 @@ fun FileCard(node: GraphNode.FileNode, isSelected: Boolean = false) {
 fun RowCard(node: GraphNode.RowNode, isSelected: Boolean = false) {
     val borderWidth = if (isSelected) 3.dp else 1.dp
     val borderColor = if (isSelected) Color.Black else getGraphNodeBorderColor(node)
+    val fileNo = node.data["file_no"]?.toString() ?: "?"
+    val rowIdx = node.data["row_idx"]?.toString() ?: "?"
+    val targetFileNo = node.data["target_file_no"]?.toString()
+    val targetRowPos = node.data["pos"]?.toString() ?: node.data["position"]?.toString()
     Box(
         modifier = Modifier
         .size(node.width.dp, node.height.dp)
@@ -404,9 +408,26 @@ fun RowCard(node: GraphNode.RowNode, isSelected: Boolean = false) {
                 fontWeight = FontWeight.Bold,
                 color = Color.DarkGray
             )
+            Text(
+                "File $fileNo | Row $rowIdx",
+                fontSize = 9.sp,
+                color = Color.DarkGray
+            )
+            if (node.content == 1 && (targetFileNo != null || targetRowPos != null)) {
+                Text(
+                    "Target: File ${targetFileNo ?: "?"} | Pos ${targetRowPos ?: "?"}",
+                    fontSize = 9.sp,
+                    color = Color.DarkGray
+                )
+            }
             Spacer(Modifier.height(2.dp))
             node.data.entries
-                .filter { (k, _) -> !(node.content == 1 && k == "file_path" && node.data.containsKey("target_file")) }
+                .filter { (k, _) ->
+                    k != "file_no" &&
+                        k != "row_idx" &&
+                        k != "target_file_no" &&
+                        !(node.content == 1 && k == "file_path" && node.data.containsKey("target_file"))
+                }
                 .take(3)
                 .forEach { (k, v) ->
                 Text(

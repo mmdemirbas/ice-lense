@@ -881,7 +881,10 @@ fun NodeDetailsContent(graphModel: GraphModel?, selectedNodeIds: Set<String>) {
                                 else -> "Data Row"
                             }
                             DetailRow("Column", "Value ($typeStr)", isHeader = true)
+                            DetailRow("file_no", node.data["file_no"]?.toString() ?: "N/A")
+                            DetailRow("row_idx", node.data["row_idx"]?.toString() ?: "N/A")
                             node.data.entries
+                                .filterNot { it.key == "file_no" || it.key == "row_idx" }
                                 .sortedBy { it.key }
                                 .forEach { (k, v) -> DetailRow(k, "$v") }
                         }
