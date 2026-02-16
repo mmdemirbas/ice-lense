@@ -485,14 +485,14 @@ fun GraphCanvas(
                                             onSelectionChange(setOf(node.id))
                                         }
                                     }
-                                ) { change, dragAmount ->
-                                    change.consume()
-                                    val dx = dragAmount.x / localZoom
-                                    val dy = dragAmount.y / localZoom
+                                    ) { change, dragAmount ->
+                                        change.consume()
+                                        val dx = dragAmount.x
+                                        val dy = dragAmount.y
 
-                                    if (selectedNodeIds.contains(node.id)) {
-                                        selectedNodes.forEach { n ->
-                                            n.x += dx
+                                        if (selectedNodeIds.contains(node.id)) {
+                                            selectedNodes.forEach { n ->
+                                                n.x += dx
                                             n.y += dy
                                         }
                                     } else {

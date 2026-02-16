@@ -5,7 +5,6 @@ DATA TABLE
 
 UI BUGS
 - Pinch zoom is not working.
-- Mouse pointer and the moving card are not in sync when dragging in zoomed in/out state.
 
 ---
 
