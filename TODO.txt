@@ -1,11 +1,9 @@
+TECH DEBT
+- Code cleanup & organization
+
 UI BUGS
 - Pinch zoom is not working (trackpad two finger gesture).
 - To drag a node, I need to click once to select it first. I should be able to drag it immediately without the need to select it first.
-
-
----- FUTURE WORK ------------------------------------------------------------
-
-- [MANUAL] Code cleanup & organization
 
 PERFORMANCE
 - Profile & improve performance by fixing most obvious points
@@ -17,5 +15,3 @@ NEW FEATURE
 
 MORE PLATFORMS
 - Consider making this project available as an IntelliJ IDEA plugin
-
-------------------------------------------------------------------------
