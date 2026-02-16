@@ -5,6 +5,7 @@ DATA TABLE
 
 UI BUGS
 - Pinch zoom is not working (trackpad two finger gesture).
+- To drag a node, I need to click once to select it first. I should be able to drag it immediately without the need to select it first.
 
 
 ---- FUTURE WORK ------------------------------------------------------------
@@ -16,7 +17,6 @@ PERFORMANCE
 - Profile & improve performance for big tables / graphs
 
 NEW FEATURE
-- Right-click node and open in explorer / finder.
 - Add filtering capability on the graph (filter based on node type, single metadata hierarchy etc. etc.)
 - Consider implementing different layouts
 

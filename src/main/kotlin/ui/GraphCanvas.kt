@@ -403,7 +403,7 @@ fun GraphCanvas(
         LaunchedEffect(hoveredNodeId) {
             activeTooltipNodeId = null
             val targetNodeId = hoveredNodeId ?: return@LaunchedEffect
-            delay(500)
+            delay(900)
             if (hoveredNodeId == targetNodeId) {
                 activeTooltipNodeId = targetNodeId
             }

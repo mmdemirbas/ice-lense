@@ -163,7 +163,14 @@ object GraphLayoutService {
             if (!elkNodes.containsKey(mId)) {
                 val simpleMetadataId = nextMetadataSimpleId++
                 elkNodes[mId] = createElkNode(root, mId, 240.0, 96.0)
-                logicalNodes[mId] = GraphNode.MetadataNode(mId, simpleMetadataId, fileName, meta, metadata.rawJson)
+                logicalNodes[mId] = GraphNode.MetadataNode(
+                    id = mId,
+                    simpleId = simpleMetadataId,
+                    fileName = fileName,
+                    data = meta,
+                    localPath = metadata.path.toString(),
+                    rawJson = metadata.rawJson
+                )
             }
             val tableEdgeId = "e_table_${tableNodeId}_to_$mId"
             if (edges.none { it.id == tableEdgeId }) {
@@ -184,7 +191,12 @@ object GraphLayoutService {
                 if (!elkNodes.containsKey(sId)) {
                     val simpleSnapshotId = nextSnapshotSimpleId++
                     elkNodes[sId] = createElkNode(root, sId, 210.0, 84.0)
-                    logicalNodes[sId] = GraphNode.SnapshotNode(sId, snap, simpleSnapshotId)
+                    logicalNodes[sId] = GraphNode.SnapshotNode(
+                        id = sId,
+                        data = snap,
+                        simpleId = simpleSnapshotId,
+                        localPath = snapshot.path.toString()
+                    )
                 }
                 snapshot.readErrors.forEach { error ->
                     addErrorNode(sId, "SNAPSHOT READ ERROR", error)
@@ -210,7 +222,12 @@ object GraphLayoutService {
                     if (!elkNodes.containsKey(manId)) {
                         val simpleManifestId = nextManifestSimpleId++
                         elkNodes[manId] = createElkNode(root, manId, 200.0, 80.0)
-                        logicalNodes[manId] = GraphNode.ManifestNode(manId, manifest, simpleManifestId)
+                        logicalNodes[manId] = GraphNode.ManifestNode(
+                            id = manId,
+                            data = manifest,
+                            simpleId = simpleManifestId,
+                            localPath = unifiedManifest.path.toString()
+                        )
                     }
                     unifiedManifest.readErrors.forEach { error ->
                         addErrorNode(manId, "MANIFEST READ ERROR", error)
@@ -245,7 +262,12 @@ object GraphLayoutService {
 
                                 if (!elkNodes.containsKey(fId)) {
                                     elkNodes[fId] = createElkNode(root, fId, 200.0, 60.0)
-                                    logicalNodes[fId] = GraphNode.FileNode(fId, entry, simpleId)
+                                    logicalNodes[fId] = GraphNode.FileNode(
+                                        id = fId,
+                                        entry = entry,
+                                        simpleId = simpleId,
+                                        localPath = unifiedDataFile.path.toString()
+                                    )
                                 }
 
                                 val edgeId = "e_file_${manId}_to_$fId"
@@ -273,6 +295,7 @@ object GraphLayoutService {
                                                     val contentType = entry.dataFile?.content ?: 0
                                                     enrichedData["file_no"] = simpleId
                                                     enrichedData["row_idx"] = rIdx
+                                                    enrichedData["local_file_path"] = unifiedDataFile.path.toString()
                                                     if (contentType > 0 && rowData.cells.containsKey("file_path")) {
                                                         val targetPath =
                                                             rowData.cells["file_path"].toString()

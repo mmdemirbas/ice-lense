@@ -81,6 +81,7 @@ sealed class GraphNode(
         val simpleId: Int,
         val fileName: String,
         val data: TableMetadata,
+        val localPath: String? = null,
         val rawJson: String? = null,
         val initialX: Double = 0.0,
         val initialY: Double = 0.0,
@@ -90,6 +91,7 @@ sealed class GraphNode(
         override val id: String,
         val data: Snapshot,
         val simpleId: Int,
+        val localPath: String? = null,
         val initialX: Double = 0.0,
         val initialY: Double = 0.0,
     ) : GraphNode(id, initialX, initialY, 210.0, 84.0)
@@ -98,6 +100,7 @@ sealed class GraphNode(
         override val id: String,
         val data: ManifestListEntry,
         val simpleId: Int,
+        val localPath: String? = null,
         val initialX: Double = 0.0,
         val initialY: Double = 0.0,
     ) : GraphNode(id, initialX, initialY, 200.0, 80.0)
@@ -106,6 +109,7 @@ sealed class GraphNode(
         override val id: String,
         val entry: ManifestEntry,
         val simpleId: Int,
+        val localPath: String? = null,
         val initialX: Double = 0.0,
         val initialY: Double = 0.0,
     ) : GraphNode(id, initialX, initialY, 200.0, 60.0) {

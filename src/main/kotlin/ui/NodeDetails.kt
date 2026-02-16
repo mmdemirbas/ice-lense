@@ -3,8 +3,12 @@ package ui
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -25,6 +29,9 @@ import model.KeyValuePairBytes
 import model.KeyValuePairLong
 import model.MetadataLogEntry
 import model.SnapshotLogEntry
+import java.awt.Desktop
+import java.io.File
+import java.net.URI
 
 private fun nodeTitle(node: GraphNode): String = when (node) {
     is GraphNode.TableNode -> "TABLE ${node.summary.tableName}"
@@ -155,6 +162,46 @@ private fun childNodes(node: GraphNode, graphModel: GraphModel): List<GraphNode>
         .toList()
 }
 
+private fun openContainingDirectory(path: String?) {
+    val raw = path?.trim().orEmpty()
+    if (raw.isEmpty()) return
+    val file = if (raw.startsWith("file:")) {
+        runCatching { File(URI(raw)) }.getOrNull()
+    } else {
+        File(raw)
+    } ?: return
+    val osName = System.getProperty("os.name")?.lowercase().orEmpty()
+    runCatching {
+        if (file.exists() && file.isFile) {
+            when {
+                osName.contains("mac") -> {
+                    ProcessBuilder("open", "-R", file.absolutePath).start()
+                    return
+                }
+                osName.contains("win") -> {
+                    ProcessBuilder("explorer", "/select,${file.absolutePath}").start()
+                    return
+                }
+            }
+        }
+
+        val target = if (file.isDirectory) file else file.parentFile ?: file
+        if (Desktop.isDesktopSupported()) {
+            Desktop.getDesktop().open(target)
+        }
+    }
+}
+
+private fun inspectorOpenPath(node: GraphNode): String? = when (node) {
+    is GraphNode.TableNode -> node.summary.tablePath
+    is GraphNode.MetadataNode -> node.localPath
+    is GraphNode.SnapshotNode -> node.localPath
+    is GraphNode.ManifestNode -> node.localPath
+    is GraphNode.FileNode -> node.localPath
+    is GraphNode.RowNode -> node.data["local_file_path"]?.toString()
+    is GraphNode.ErrorNode -> node.path
+}
+
 @Composable
 private fun SectionTitle(title: String) {
     Text(title, fontWeight = FontWeight.Bold, fontSize = 14.sp)
@@ -272,7 +319,28 @@ fun NodeDetailsContent(graphModel: GraphModel?, selectedNodeIds: Set<String>) {
                     .verticalScroll(scrollState)
                     .padding(8.dp)
             ) {
-                Text(nodeTitle(node), fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(nodeTitle(node), fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                    val openPath = inspectorOpenPath(node)
+                    if (!openPath.isNullOrBlank()) {
+                        TextButton(
+                            onClick = { openContainingDirectory(openPath) },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                            modifier = Modifier.height(28.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.FolderOpen,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text("Reveal", fontSize = 11.sp)
+                        }
+                    }
+                }
                 Text("Node ID: ${node.id}", fontSize = 11.sp, color = Color.Gray)
                 Spacer(Modifier.height(8.dp))
 
@@ -869,7 +937,8 @@ fun NodeDetailsContent(graphModel: GraphModel?, selectedNodeIds: Set<String>) {
                             DetailRow("NaN Value Counts", kvLongs(node.data.nanValueCounts))
                             DetailRow("Lower Bounds", kvBytes(node.data.lowerBounds))
                             DetailRow("Upper Bounds", kvBytes(node.data.upperBounds))
-                            DetailRow("Path", "${node.data.filePath ?: "N/A"}")
+                            val filePath = node.data.filePath
+                            DetailRow("Path", "${filePath ?: "N/A"}")
                         }
                     }
 
