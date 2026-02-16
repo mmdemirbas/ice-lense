@@ -1,39 +1,51 @@
-- [MANUAL] Code cleanup & organization
+--- NEXT ITEMS ----------------------------------------------------------------
+
+MORE CONTEXT
+- Show data file number and position index on data rows. It will make the position delete targets easier to identify.
 
 ---
 
-UX
+DATA TABLE
+- Add a data table to show all data/delete rows under a selected node to all parent nodes. It should be sorted in the same order with the data rows, so we can easily reason about the final state.
+
+---
+
+UI BUGS
 - When is the UI state saved? I close and re-open the app and observe that it re-opens in the previous monitor but I has moved it to the other monitor before closing. It feels inconsistent.
-- Metadata node could point to multiple snapshots, and edges mix with each other. Resolve this UX problem somehow (using different colors etc.)
 - Pinch zoom is not working.
 
+---
+
+SELECTION
+- Support "pick-selection" by Cmd+click (or whichever shortcut is common).
+- I think there is a bug in selection logic. We should be able to easily de-select by clicking outside or using the pick selection shortcut again.
+
+---
+
+ANNOYING TOOLTIPS
+- Tooltips are too quick. While mouse is passing over multiple cards every single one of them tryies to build a tooltip and I see multiple tooltips on the screen at the same time.
+
+---
+
+EDGES BECOME INVISIBLE
+- When children nodes are out of screen, their edges are also become invisible (hid immediately for some reason). It is misleading since it gives the impression that the parent node has no children at all.
+
+
+
+---- FUTURE WORK ------------------------------------------------------------
+
+- [MANUAL] Code cleanup & organization
 
 PERFORMANCE
 - Profile & improve performance by fixing most obvious points
 - Profile & improve performance for big tables / graphs
 
-
-FEATURE
+NEW FEATURE
 - Right-click node and open in explorer / finder.
 - Add filtering capability on the graph (filter based on node type, single metadata hierarchy etc. etc.)
 - Consider implementing different layouts
 
+MORE PLATFORMS
+- Consider making this project available as an IntelliJ IDEA plugin
 
-FUTURE WORK
-- Consider making this project available as an IntelliJ IDEA plugin. (I can make it paid)
-
----
-
-Support "pick-selection" by Cmd+click (or whichever shortcut is common).
-
-I think there is a bug in selection logic. We should be able to easily de-select by clicking outside or using the pick selection shortcut again.
-
----
-
-Tooltips are too quick. While mouse is passing over multiple cards every single one of them tryies to build a tooltip and I see multiple tooltips on the screen at the same time.
-
----
-
-When children nodes are out of screen, their edges are also become invisible (hid immediately for some reason). It is misleading since it gives the impression that the parent node has no children at all.
-
----
+------------------------------------------------------------------------
