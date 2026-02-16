@@ -15,11 +15,6 @@ SELECTION
 
 ---
 
-ANNOYING TOOLTIPS
-- Tooltips are too quick. While mouse is passing over multiple cards every single one of them tryies to build a tooltip and I see multiple tooltips on the screen at the same time.
-
----
-
 EDGES BECOME INVISIBLE
 - When children nodes are out of screen, their edges are also become invisible (hid immediately for some reason). It is misleading since it gives the impression that the parent node has no children at all.
 

@@ -9,8 +9,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.TooltipArea
-import androidx.compose.foundation.TooltipPlacement
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -30,12 +28,14 @@ import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import model.GraphModel
 import model.GraphNode
 import model.GraphEdge
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 private fun tonedEdgeColor(base: Color, sourceId: String): Color {
     val hash = sourceId.hashCode()
@@ -70,6 +70,7 @@ fun GraphCanvas(
     var localZoom by remember { mutableStateOf(zoom) }
     
     var hoveredNodeId by remember { mutableStateOf<String?>(null) }
+    var activeTooltipNodeId by remember { mutableStateOf<String?>(null) }
     var marqueeStart by remember { mutableStateOf<Offset?>(null) }
     var marqueeEnd by remember { mutableStateOf<Offset?>(null) }
 
@@ -371,6 +372,15 @@ fun GraphCanvas(
             offsetAnim.snapTo(clampOffset(offsetAnim.value, localZoom))
         }
 
+        LaunchedEffect(hoveredNodeId) {
+            activeTooltipNodeId = null
+            val targetNodeId = hoveredNodeId ?: return@LaunchedEffect
+            delay(500)
+            if (hoveredNodeId == targetNodeId) {
+                activeTooltipNodeId = targetNodeId
+            }
+        }
+
         // Sync local state when external zoom changes (e.g. from buttons)
         LaunchedEffect(zoom) {
             if (Math.abs(zoom - localZoom) > 0.001f) {
@@ -452,76 +462,82 @@ fun GraphCanvas(
 
             visibleNodes.forEach { node ->
                 Box(modifier = Modifier.offset { IntOffset(node.x.toInt(), node.y.toInt()) }) {
-                    TooltipArea(
-                        tooltip = { NodeTooltip(node) },
-                        delayMillis = 400,
-                        tooltipPlacement = TooltipPlacement.CursorPoint(
-                            alignment = Alignment.BottomEnd,
-                            offset = DpOffset(16.dp, 16.dp)
-                        )
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .pointerInput(node.id) {
-                                    awaitPointerEventScope {
-                                        while (true) {
-                                            val event = awaitPointerEvent()
-                                            if (event.type == PointerEventType.Enter) {
-                                                hoveredNodeId = node.id
-                                            } else if (event.type == PointerEventType.Exit) {
+                    Box(
+                        modifier = Modifier
+                            .pointerInput(node.id) {
+                                awaitPointerEventScope {
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        if (event.type == PointerEventType.Enter) {
+                                            hoveredNodeId = node.id
+                                        } else if (event.type == PointerEventType.Exit) {
+                                            if (hoveredNodeId == node.id) {
                                                 hoveredNodeId = null
                                             }
                                         }
                                     }
                                 }
-                                .pointerInput(node.id + "_interaction") {
-                                    detectDragGestures(
-                                        onDragStart = {
-                                            if (!selectedNodeIds.contains(node.id)) {
-                                                onSelectionChange(setOf(node.id))
-                                            }
-                                        }
-                                    ) { change, dragAmount ->
-                                        change.consume()
-                                        val dx = dragAmount.x / localZoom
-                                        val dy = dragAmount.y / localZoom
-
-                                        if (selectedNodeIds.contains(node.id)) {
-                                            selectedNodes.forEach { n ->
-                                                n.x += dx
-                                                n.y += dy
-                                            }
-                                        } else {
-                                            node.x += dx
-                                            node.y += dy
+                            }
+                            .pointerInput(node.id + "_interaction") {
+                                detectDragGestures(
+                                    onDragStart = {
+                                        if (!selectedNodeIds.contains(node.id)) {
                                             onSelectionChange(setOf(node.id))
                                         }
                                     }
-                                }
-                                .pointerInput(node.id + "_tap") {
-                                    detectTapGestures(
-                                        onTap = { onSelectionChange(setOf(node.id)) },
-                                        onDoubleTap = {
-                                            onSelectionChange(setOf(node.id))
-                                            onNodeDoubleClick(node)
+                                ) { change, dragAmount ->
+                                    change.consume()
+                                    val dx = dragAmount.x / localZoom
+                                    val dy = dragAmount.y / localZoom
+
+                                    if (selectedNodeIds.contains(node.id)) {
+                                        selectedNodes.forEach { n ->
+                                            n.x += dx
+                                            n.y += dy
                                         }
-                                    )
+                                    } else {
+                                        node.x += dx
+                                        node.y += dy
+                                        onSelectionChange(setOf(node.id))
+                                    }
                                 }
-                                // Removed redundant .clickable to avoid double selection triggers
-                        ) {
-                            val isActive = hoveredNodeId == node.id || selectedNodeIds.contains(node.id)
-                            when (node) {
-                                is GraphNode.TableNode    -> TableCard(node, isSelected = isActive)
-                                is GraphNode.MetadataNode -> MetadataCard(node, isSelected = isActive)
-                                is GraphNode.SnapshotNode -> SnapshotCard(node, isSelected = isActive)
-                                is GraphNode.ManifestNode -> ManifestCard(node, isSelected = isActive)
-                                is GraphNode.FileNode     -> FileCard(node, isSelected = isActive)
-                                is GraphNode.RowNode      -> RowCard(node, isSelected = isActive)
-                                is GraphNode.ErrorNode    -> ErrorCard(node, isSelected = isActive)
                             }
+                            .pointerInput(node.id + "_tap") {
+                                detectTapGestures(
+                                    onTap = { onSelectionChange(setOf(node.id)) },
+                                    onDoubleTap = {
+                                        onSelectionChange(setOf(node.id))
+                                        onNodeDoubleClick(node)
+                                    }
+                                )
+                            }
+                            // Removed redundant .clickable to avoid double selection triggers
+                    ) {
+                        val isActive = hoveredNodeId == node.id || selectedNodeIds.contains(node.id)
+                        when (node) {
+                            is GraphNode.TableNode    -> TableCard(node, isSelected = isActive)
+                            is GraphNode.MetadataNode -> MetadataCard(node, isSelected = isActive)
+                            is GraphNode.SnapshotNode -> SnapshotCard(node, isSelected = isActive)
+                            is GraphNode.ManifestNode -> ManifestCard(node, isSelected = isActive)
+                            is GraphNode.FileNode     -> FileCard(node, isSelected = isActive)
+                            is GraphNode.RowNode      -> RowCard(node, isSelected = isActive)
+                            is GraphNode.ErrorNode    -> ErrorCard(node, isSelected = isActive)
                         }
                     }
                 }
+            }
+        }
+
+        val tooltipNode = activeTooltipNodeId?.let(nodeById::get)
+        if (tooltipNode != null) {
+            val tooltipX = ((tooltipNode.x + tooltipNode.width) * localZoom + offsetAnim.value.x + 12f).roundToInt()
+            val tooltipY = (tooltipNode.y * localZoom + offsetAnim.value.y + 12f).roundToInt()
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .offset { IntOffset(tooltipX, tooltipY) }
+            ) {
+                NodeTooltip(tooltipNode)
             }
         }
 
