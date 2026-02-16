@@ -74,7 +74,7 @@ sealed class GraphNode(
         val summary: TableSummary,
         val initialX: Double = 0.0,
         val initialY: Double = 0.0,
-    ) : GraphNode(id, initialX, initialY, 300.0, 120.0)
+    ) : GraphNode(id, initialX, initialY, 240.0, 96.0)
 
     data class MetadataNode(
         override val id: String,

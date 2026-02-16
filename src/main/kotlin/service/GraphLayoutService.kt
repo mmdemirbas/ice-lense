@@ -43,10 +43,10 @@ object GraphLayoutService {
         root.setProperty(CoreOptions.ALGORITHM, "org.eclipse.elk.layered")
         root.setProperty(CoreOptions.DIRECTION, Direction.RIGHT)
         root.setProperty(CoreOptions.EDGE_ROUTING, EdgeRouting.SPLINES)
-        root.setProperty(CoreOptions.SPACING_NODE_NODE, 180.0)
+        root.setProperty(CoreOptions.SPACING_NODE_NODE, 120.0)
         root.setProperty(
             org.eclipse.elk.alg.layered.options.LayeredOptions.SPACING_NODE_NODE_BETWEEN_LAYERS,
-            500.0
+            300.0
         )
 
         val elkNodes = mutableMapOf<String, ElkNode>()
@@ -56,7 +56,7 @@ object GraphLayoutService {
         val tableNodeId = "table_root"
 
         val tableSummary = buildTableSummary(tableModel)
-        elkNodes[tableNodeId] = createElkNode(root, tableNodeId, 300.0, 120.0)
+        elkNodes[tableNodeId] = createElkNode(root, tableNodeId, 240.0, 96.0)
         logicalNodes[tableNodeId] = GraphNode.TableNode(tableNodeId, tableSummary)
 
         // Registry to map long Iceberg paths to simple IDs
@@ -727,9 +727,7 @@ object GraphLayoutService {
         // Process each layer independently to prevent overlaps
         // Layers are determined by node types and their natural left-to-right order
 
-        val margin = 8.0  // Minimum gap between nodes
-
-        fun preventOverlapsInLayer(nodes: List<GraphNode>) {
+        fun preventOverlapsInLayer(nodes: List<GraphNode>, margin: Double = 8.0) {
             if (nodes.size < 2) return
 
             // Sort by current Y position
@@ -753,8 +751,8 @@ object GraphLayoutService {
         preventOverlapsInLayer(nodesById.values.filterIsInstance<GraphNode.MetadataNode>())
         preventOverlapsInLayer(nodesById.values.filterIsInstance<GraphNode.SnapshotNode>())
         preventOverlapsInLayer(nodesById.values.filterIsInstance<GraphNode.ManifestNode>())
-        preventOverlapsInLayer(nodesById.values.filterIsInstance<GraphNode.FileNode>())
-        preventOverlapsInLayer(nodesById.values.filterIsInstance<GraphNode.RowNode>())
+        preventOverlapsInLayer(nodesById.values.filterIsInstance<GraphNode.FileNode>(), margin = 2.0)
+        preventOverlapsInLayer(nodesById.values.filterIsInstance<GraphNode.RowNode>(), margin = 2.0)
     }
 
     private class FileTimeAccumulator {

@@ -28,12 +28,6 @@ MORE CONTEXT
 
 ---
 
-ERROR REPORTING
-If there is an error shown on the graph canvas ( red message at the bottom ), then we should make it selectable so the user can copy it or its parts.
-Also we should include the whole exception trace optionally. I mean the red error message should be shown like now, but we should include a collapsible pane or a proper UI component to access the full exception stack trace. It will be very helpful for debugging and reporting issues.
-
----
-
 GITHUB LINK
 
 Include a Github link at the top right corner of the toolbar. I could also include an about popup.
