@@ -1,8 +1,3 @@
-DATA TABLE
-- Add a data table to show all data/delete rows under a selected node to all parent nodes. It should be sorted in the same order with the rows, so we can easily reason about the final state.
-
----
-
 UI BUGS
 - Pinch zoom is not working (trackpad two finger gesture).
 - To drag a node, I need to click once to select it first. I should be able to drag it immediately without the need to select it first.

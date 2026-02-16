@@ -162,6 +162,207 @@ private fun childNodes(node: GraphNode, graphModel: GraphModel): List<GraphNode>
         .toList()
 }
 
+private data class DescendantRow(
+    val rowNode: GraphNode.RowNode,
+    val fileNode: GraphNode.FileNode?,
+)
+
+private fun collectDescendantRows(node: GraphNode, graphModel: GraphModel): List<DescendantRow> {
+    val nodeById = graphModel.nodes.associateBy { it.id }
+    val childrenByParent = graphModel.edges
+        .groupBy { it.fromId }
+        .mapValues { (_, edges) -> edges.map { it.toId } }
+    val seenRows = mutableSetOf<String>()
+    val collected = mutableListOf<DescendantRow>()
+
+    if (node is GraphNode.RowNode) {
+        seenRows += node.id
+        collected += DescendantRow(node, null)
+    }
+
+    fun visit(nodeId: String, currentFile: GraphNode.FileNode?) {
+        val children = childrenByParent[nodeId].orEmpty()
+            .mapNotNull { childId -> nodeById[childId] }
+            .sortedWith(compareBy({ it.y }, { it.id }))
+        children.forEach { child ->
+            when (child) {
+                is GraphNode.RowNode -> {
+                    if (seenRows.add(child.id)) {
+                        collected += DescendantRow(child, currentFile)
+                    }
+                }
+                is GraphNode.FileNode -> visit(child.id, child)
+                else -> visit(child.id, currentFile)
+            }
+        }
+    }
+
+    visit(node.id, node as? GraphNode.FileNode)
+    return collected.sortedWith(compareBy({ it.rowNode.y }, { it.rowNode.id }))
+}
+
+private fun identifierFieldNamesForNode(node: GraphNode, graphModel: GraphModel): List<String> {
+    val nodeById = graphModel.nodes.associateBy { it.id }
+    val parentsByChild = graphModel.edges
+        .groupBy { it.toId }
+        .mapValues { (_, edges) -> edges.map { it.fromId } }
+
+    fun identifiersFromMetadata(metadataNode: GraphNode.MetadataNode): List<String> {
+        val metadata = metadataNode.data
+        val schema = metadata.schemas
+            .firstOrNull { it.schemaId == metadata.currentSchemaId }
+            ?: metadata.schemas.firstOrNull()
+            ?: return emptyList()
+        val idSet = schema.identifierFieldIds.toSet()
+        return schema.fields
+            .filter { (it.id ?: -1) in idSet }
+            .mapNotNull { it.name }
+    }
+
+    val metadataCandidates = mutableListOf<GraphNode.MetadataNode>()
+    when (node) {
+        is GraphNode.MetadataNode -> metadataCandidates += node
+        is GraphNode.TableNode -> {
+            val children = graphModel.edges
+                .asSequence()
+                .filter { it.fromId == node.id }
+                .mapNotNull { edge -> nodeById[edge.toId] as? GraphNode.MetadataNode }
+                .toList()
+            metadataCandidates += children
+        }
+        else -> {
+            val queue = ArrayDeque<String>()
+            val visited = mutableSetOf<String>()
+            queue.add(node.id)
+            while (queue.isNotEmpty()) {
+                val current = queue.removeFirst()
+                if (!visited.add(current)) continue
+                val parentIds = parentsByChild[current].orEmpty()
+                parentIds.forEach { parentId ->
+                    val parentNode = nodeById[parentId]
+                    if (parentNode is GraphNode.MetadataNode) {
+                        metadataCandidates += parentNode
+                    }
+                    queue.add(parentId)
+                }
+            }
+        }
+    }
+
+    val chosen = metadataCandidates.maxByOrNull { it.simpleId } ?: return emptyList()
+    return identifiersFromMetadata(chosen)
+}
+
+private fun formatEventLiteral(value: Any?): String = when (value) {
+    is Number, is Boolean -> value.toString()
+    else -> "'${value.toString().replace("'", "\\'")}'"
+}
+
+private fun buildChangelogEvent(
+    row: GraphNode.RowNode,
+    effectiveData: Map<String, Any>,
+    orderedColumns: List<String>
+): String {
+    val op = if (row.content == 0) "+I" else "-D"
+    val tupleValues = orderedColumns
+        .mapNotNull { column -> effectiveData[column]?.let(::formatEventLiteral) }
+    return "$op(${tupleValues.joinToString(",")})"
+}
+
+private fun asInt(value: Any?): Int? = when (value) {
+    null -> null
+    is Number -> value.toInt()
+    else -> value.toString().toIntOrNull()
+}
+
+@Composable
+private fun RecursiveDataTableSection(
+    node: GraphNode,
+    graphModel: GraphModel
+) {
+    val rows = remember(node.id, graphModel.nodes, graphModel.edges) { collectDescendantRows(node, graphModel) }
+    if (rows.isEmpty()) return
+
+    val identifierFields = remember(node.id, graphModel.nodes, graphModel.edges) {
+        identifierFieldNamesForNode(node, graphModel)
+    }
+    val dataRowIndexByFileAndPos = remember(graphModel.nodes) {
+        graphModel.nodes
+            .filterIsInstance<GraphNode.RowNode>()
+            .filter { it.content == 0 }
+            .mapNotNull { dataRow ->
+                val fileNo = asInt(dataRow.data["file_no"]) ?: return@mapNotNull null
+                val pos = asInt(dataRow.data["row_idx"]) ?: return@mapNotNull null
+                (fileNo to pos) to dataRow
+            }
+            .toMap()
+    }
+
+    val effectiveDataByRowId = rows.associate { descendant ->
+        val rowNode = descendant.rowNode
+        val targetRow = if (rowNode.content == 1) {
+            val targetFileNo = asInt(rowNode.data["target_file_no"])
+            val targetPos = asInt(rowNode.data["pos"] ?: rowNode.data["position"])
+            if (targetFileNo != null && targetPos != null) {
+                dataRowIndexByFileAndPos[targetFileNo to targetPos]
+            } else null
+        } else {
+            null
+        }
+        rowNode.id to (targetRow?.data ?: rowNode.data)
+    }
+
+    val metaColumns = setOf(
+        "file_no",
+        "row_idx",
+        "target_file",
+        "target_file_no",
+        "local_file_path",
+        "file_path",
+        "pos",
+        "position",
+    )
+    val allDataColumns = rows
+        .flatMap { descendant -> effectiveDataByRowId[descendant.rowNode.id].orEmpty().keys }
+        .filterNot { it in metaColumns }
+        .distinct()
+    val orderedDataColumns = identifierFields.filter { it in allDataColumns } +
+        allDataColumns.filterNot { it in identifierFields }.sorted()
+
+    Spacer(Modifier.height(16.dp))
+    SectionTitle("Changelog")
+
+    WideTable(
+        headers = listOf("Idx", "Changelog", "Change") + orderedDataColumns,
+        rows = rows.mapIndexed { index, descendant ->
+            val rowNode = descendant.rowNode
+            val effectiveData = effectiveDataByRowId[rowNode.id] ?: rowNode.data
+            val change = when (rowNode.content) {
+                1 -> {
+                    val targetFile = rowNode.data["target_file_no"] ?: "?"
+                    val targetPos = rowNode.data["pos"] ?: rowNode.data["position"] ?: "?"
+                    "del file=$targetFile pos=$targetPos"
+                }
+                2 -> {
+                    val parts = identifierFields.mapNotNull { key ->
+                        effectiveData[key]?.let { value -> "$key=$value" }
+                    }
+                    if (parts.isEmpty()) "del" else "del ${parts.joinToString(" ")}"
+                }
+                else -> "append"
+            }
+            val dataValues = orderedDataColumns.map { column ->
+                normalizeText(effectiveData[column]?.toString())
+            }
+            listOf(
+                "${index + 1}",
+                buildChangelogEvent(rowNode, effectiveData, orderedDataColumns),
+                change
+            ) + dataValues
+        }
+    )
+}
+
 private fun openContainingDirectory(path: String?) {
     val raw = path?.trim().orEmpty()
     if (raw.isEmpty()) return
@@ -401,6 +602,8 @@ fun NodeDetailsContent(graphModel: GraphModel?, selectedNodeIds: Set<String>) {
                             DetailRow("Last Updated (UI)", formatTimestamp(summary.lastUpdatedMs))
                         }
 
+                        RecursiveDataTableSection(node = node, graphModel = currentGraph)
+
                         Spacer(Modifier.height(16.dp))
                         SectionTitle("Metadata Files")
                         DetailTable {
@@ -494,6 +697,8 @@ fun NodeDetailsContent(graphModel: GraphModel?, selectedNodeIds: Set<String>) {
                             DetailRow("Snapshot Log Entries", "${node.data.snapshotLog.size}")
                             DetailRow("Metadata Log Entries", "${node.data.metadataLog.size}")
                         }
+
+                        RecursiveDataTableSection(node = node, graphModel = currentGraph)
 
                         if (node.data.properties.isNotEmpty()) {
                             Spacer(Modifier.height(16.dp))
@@ -733,6 +938,8 @@ fun NodeDetailsContent(graphModel: GraphModel?, selectedNodeIds: Set<String>) {
                             DetailRow("Manifest List", manifestListLabel)
                         }
 
+                        RecursiveDataTableSection(node = node, graphModel = currentGraph)
+
                         if (node.data.summary.isNotEmpty()) {
                             Spacer(Modifier.height(16.dp))
                             SectionTitle("Summary")
@@ -822,6 +1029,8 @@ fun NodeDetailsContent(graphModel: GraphModel?, selectedNodeIds: Set<String>) {
                             val manifestPathLabel = if (manifestPath == null) "N/A" else "${manifestPath.substringAfterLast("/")} ($manifestPath)"
                             DetailRow("Path", manifestPathLabel)
                         }
+
+                        RecursiveDataTableSection(node = node, graphModel = currentGraph)
 
                         val fileChildren = children
                             .filterIsInstance<GraphNode.FileNode>()
@@ -940,6 +1149,8 @@ fun NodeDetailsContent(graphModel: GraphModel?, selectedNodeIds: Set<String>) {
                             val filePath = node.data.filePath
                             DetailRow("Path", "${filePath ?: "N/A"}")
                         }
+
+                        RecursiveDataTableSection(node = node, graphModel = currentGraph)
                     }
 
                     is GraphNode.RowNode -> {
@@ -957,6 +1168,8 @@ fun NodeDetailsContent(graphModel: GraphModel?, selectedNodeIds: Set<String>) {
                                 .sortedBy { it.key }
                                 .forEach { (k, v) -> DetailRow(k, "$v") }
                         }
+
+                        RecursiveDataTableSection(node = node, graphModel = currentGraph)
                     }
 
                     is GraphNode.ErrorNode -> {
