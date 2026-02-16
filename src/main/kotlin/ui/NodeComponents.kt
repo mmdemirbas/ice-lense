@@ -17,9 +17,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import model.GraphNode
+import java.text.NumberFormat
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 private fun metadataCardId(fileName: String): String =
     fileName.removePrefix("v").removeSuffix(".metadata.json").toIntOrNull()?.toString() ?: "?"
@@ -37,6 +39,30 @@ private fun rowContentLabel(content: Int): String = when (content) {
     1 -> "POS DELETE ROW"
     2 -> "EQ DELETE ROW"
     else -> "DATA ROW"
+}
+
+private fun fileNameFromPath(path: String?): String {
+    val raw = path?.trim().orEmpty()
+    if (raw.isEmpty()) return "N/A"
+    val normalized = raw.removeSuffix("/").removeSuffix("\\")
+    val candidate = normalized.substringAfterLast('/').substringAfterLast('\\')
+    return candidate.ifEmpty { normalized }
+}
+
+private fun formatCount(value: Long?): String =
+    value?.let { NumberFormat.getIntegerInstance(Locale.US).format(it) } ?: "N/A"
+
+private fun formatBytes(bytes: Long?): String {
+    if (bytes == null) return "N/A"
+    val units = arrayOf("B", "KB", "MB", "GB", "TB")
+    var value = bytes.toDouble()
+    var unitIndex = 0
+    while (value >= 1024.0 && unitIndex < units.lastIndex) {
+        value /= 1024.0
+        unitIndex++
+    }
+    val compact = if (unitIndex == 0) String.format(Locale.US, "%.0f", value) else String.format(Locale.US, "%.1f", value)
+    return "${formatCount(bytes)} bytes ($compact ${units[unitIndex]})"
 }
 
 fun getGraphNodeColor(node: GraphNode): Color = when (node) {
@@ -128,7 +154,7 @@ fun DetailRow(key: String, value: String, isHeader: Boolean = false, isDark: Boo
     ) {
         Text(
             text = key,
-            modifier = Modifier.weight(0.4f),
+            modifier = Modifier.weight(0.20f),
             fontSize = 11.sp,
             fontWeight = if (isHeader) FontWeight.Bold else FontWeight.Medium,
             color = keyColor
@@ -137,7 +163,7 @@ fun DetailRow(key: String, value: String, isHeader: Boolean = false, isDark: Boo
         Spacer(Modifier.width(8.dp))
         Text(
             text = value,
-            modifier = Modifier.weight(0.6f),
+            modifier = Modifier.weight(0.68f),
             fontSize = 11.sp,
             fontWeight = if (isHeader) FontWeight.Bold else FontWeight.Normal,
             fontFamily = if (isHeader) null else FontFamily.Monospace,
@@ -186,26 +212,31 @@ fun NodeTooltip(node: GraphNode) {
                     DetailRow("Data Files", "${node.summary.manifestEntryCount}", isDark = true)
                 }
                 is GraphNode.MetadataNode -> {
-                    DetailRow("File", node.fileName, isDark = true)
-                    DetailRow("Version", "${node.data.formatVersion}", isDark = true)
+                    DetailRow("File Name", node.fileName, isDark = true)
+                    DetailRow("Format", "${node.data.formatVersion ?: "N/A"}", isDark = true)
                     DetailRow("Last Updated", formatTimestamp(node.data.lastUpdatedMs), isDark = true)
                     DetailRow("Snapshots", "${node.data.snapshots.size}", isDark = true)
                 }
                 is GraphNode.SnapshotNode -> {
-                    DetailRow("ID", "${node.data.snapshotId}", isDark = true)
+                    val manifestListPath = node.data.manifestList
+                    DetailRow("File Name", fileNameFromPath(manifestListPath), isDark = true)
+                    DetailRow("Snapshot ID", "${node.data.snapshotId ?: "N/A"}", isDark = true)
                     DetailRow("Operation", node.data.summary["operation"] ?: "N/A", isDark = true)
                     DetailRow("Timestamp", formatTimestamp(node.data.timestampMs), isDark = true)
                 }
                 is GraphNode.ManifestNode -> {
+                    val manifestPath = node.data.manifestPath
+                    DetailRow("File Name", fileNameFromPath(manifestPath), isDark = true)
                     DetailRow("Added", "${node.data.addedFilesCount} files", isDark = true)
                     DetailRow("Deleted", "${node.data.deletedFilesCount} files", isDark = true)
                     DetailRow("Sequence", "${node.data.sequenceNumber ?: "N/A"}", isDark = true)
                 }
                 is GraphNode.FileNode -> {
-                    DetailRow("ID", "File ${node.simpleId}", isDark = true)
+                    val filePath = node.data.filePath
+                    DetailRow("File Name", fileNameFromPath(filePath), isDark = true)
                     DetailRow("Format", node.data.fileFormat ?: "N/A", isDark = true)
-                    DetailRow("Records", "${node.data.recordCount}", isDark = true)
-                    DetailRow("Size", "${node.data.fileSizeInBytes} bytes", isDark = true)
+                    DetailRow("Records", formatCount(node.data.recordCount), isDark = true)
+                    DetailRow("Size", formatBytes(node.data.fileSizeInBytes), isDark = true)
                 }
                 is GraphNode.RowNode -> {
                     node.data.entries.take(5).forEach { (k, v) ->
