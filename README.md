@@ -12,8 +12,19 @@ It helps you see:
 
 This project is built with Kotlin + Compose Desktop.
 
-![Workspace](assets/screenshots/01-workspace-inspector.png)
-![Structure](assets/screenshots/02-structure-tooltip.png)
+## Screenshots
+
+### Fullscreen
+
+![Fullscreen](assets/screenshots/fullscreen.png)
+
+### Overview
+
+![Overview](assets/screenshots/overview.png)
+
+### Cheatsheet
+
+![Help](assets/screenshots/help.png)
 
 ## Why this project
 
