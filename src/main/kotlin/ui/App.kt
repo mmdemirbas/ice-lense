@@ -794,7 +794,7 @@ fun App() {
                             if (!Desktop.isDesktopSupported()) {
                                 error("Desktop browsing is not supported on this platform.")
                             }
-                            Desktop.getDesktop().browse(URI("https://github.com/mmdemirbas/ice-lense"))
+                            Desktop.getDesktop().browse(URI("https://github.com/mmdemirbas/ice-lens"))
                         }.onFailure { e ->
                             errorMsg = "Failed to open GitHub link: ${e.message}"
                         }
@@ -1113,7 +1113,7 @@ fun App() {
             }
 
             if (showAboutDialog) {
-                val githubUrl = "https://github.com/mmdemirbas/ice-lense"
+                val githubUrl = "https://github.com/mmdemirbas/ice-lens"
                 AlertDialog(
                     onDismissRequest = { showAboutDialog = false },
                     confirmButton = {
