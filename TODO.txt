@@ -10,7 +10,6 @@ PERFORMANCE
 - Profile & improve performance for big tables / graphs
 
 NEW FEATURE
-- Add filtering capability on the graph (filter based on node type, single metadata hierarchy etc. etc.)
 - Consider implementing different layouts
 
 MORE PLATFORMS

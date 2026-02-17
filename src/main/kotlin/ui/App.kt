@@ -76,6 +76,115 @@ data class TableSession(
     val fingerprint: String = "",
 )
 
+private val appDateTimeFormatter: DateTimeFormatter =
+    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+        .withZone(ZoneId.systemDefault())
+
+private fun formatAppTimestamp(ms: Long?): String =
+    ms?.let { appDateTimeFormatter.format(Instant.ofEpochMilli(it)) } ?: "N/A"
+
+private data class SnapshotFilterOption(
+    val nodeId: String,
+    val snapshotId: Long?,
+    val sequenceNumber: Long?,
+    val timestampMs: Long?,
+)
+
+private fun snapshotFilterLabel(option: SnapshotFilterOption): String {
+    val seq = option.sequenceNumber?.toString() ?: "N/A"
+    val sid = option.snapshotId?.toString() ?: "N/A"
+    return "Seq $seq | Snapshot $sid"
+}
+
+private fun computeVisibleNodeIdsForSnapshotFilter(
+    graph: GraphModel,
+    selectedSnapshotNodeIds: Set<String>
+): Set<String> {
+    if (selectedSnapshotNodeIds.isEmpty()) return graph.nodes.map { it.id }.toSet()
+
+    val validSnapshotIds = graph.nodes
+        .filterIsInstance<GraphNode.SnapshotNode>()
+        .map { it.id }
+        .toHashSet()
+    val selected = selectedSnapshotNodeIds.filterTo(mutableSetOf()) { it in validSnapshotIds }
+    if (selected.isEmpty()) return graph.nodes.map { it.id }.toSet()
+
+    val childrenByParent = graph.edges
+        .groupBy { it.fromId }
+        .mapValues { (_, edges) -> edges.map { it.toId } }
+    val parentsByChild = graph.edges
+        .groupBy { it.toId }
+        .mapValues { (_, edges) -> edges.map { it.fromId } }
+
+    val visible = mutableSetOf<String>()
+
+    fun walk(start: String, next: (String) -> List<String>) {
+        val queue = ArrayDeque<String>()
+        val seen = mutableSetOf<String>()
+        queue.add(start)
+        while (queue.isNotEmpty()) {
+            val current = queue.removeFirst()
+            if (!seen.add(current)) continue
+            visible += current
+            next(current).forEach(queue::addLast)
+        }
+    }
+
+    selected.forEach { snapshotId ->
+        walk(snapshotId) { id -> parentsByChild[id].orEmpty() }
+        walk(snapshotId) { id -> childrenByParent[id].orEmpty() }
+    }
+
+    return visible
+}
+
+private fun filteredGraphModel(graph: GraphModel, visibleNodeIds: Set<String>): GraphModel {
+    if (visibleNodeIds.isEmpty()) return GraphModel(emptyList(), emptyList(), 1.0, 1.0)
+    if (visibleNodeIds.size == graph.nodes.size) return graph
+
+    val nodes = graph.nodes.filter { it.id in visibleNodeIds }
+    val edges = graph.edges.filter { it.fromId in visibleNodeIds && it.toId in visibleNodeIds }
+    val width = nodes.maxOfOrNull { it.x + it.width } ?: 1.0
+    val height = nodes.maxOfOrNull { it.y + it.height } ?: 1.0
+    return GraphModel(nodes = nodes, edges = edges, width = width, height = height)
+}
+
+private fun relayoutVisibleSubgraph(graph: GraphModel, visibleNodeIds: Set<String>): GraphModel {
+    if (visibleNodeIds.isEmpty()) return graph
+    val visibleNodes = graph.nodes.filter { it.id in visibleNodeIds }
+    if (visibleNodes.isEmpty()) return graph
+
+    val layerXs = visibleNodes.map { it.x }
+        .distinct()
+        .sorted()
+    if (layerXs.isEmpty()) return graph
+
+    val layerIndexByX = layerXs.withIndex().associate { it.value to it.index }
+    val horizontalGap = 230.0
+    val verticalGap = 12.0
+    val baseX = 60.0
+    val baseY = 48.0
+
+    visibleNodes
+        .groupBy { node -> layerIndexByX[node.x] ?: 0 }
+        .toSortedMap()
+        .forEach { (layerIndex, nodesInLayer) ->
+            val x = baseX + layerIndex * horizontalGap
+            var yCursor = baseY
+            nodesInLayer
+                .sortedWith(compareBy({ it.y }, { it.id }))
+                .forEach { node ->
+                    node.x = x
+                    node.y = yCursor
+                    yCursor += node.height + verticalGap
+                }
+        }
+
+    val width = graph.nodes.maxOfOrNull { it.x + it.width } ?: 1.0
+    val height = graph.nodes.maxOfOrNull { it.y + it.height } ?: 1.0
+    return GraphModel(nodes = graph.nodes, edges = graph.edges, width = width, height = height)
+}
+
 @Composable
 fun DraggableVerticalDivider(onDrag: (Float) -> Unit) {
     Box(
@@ -249,9 +358,54 @@ fun App() {
     var isSelectMode by remember { mutableStateOf(prefs.getBoolean(PREF_IS_SELECT_MODE, true)) }
     var zoom by remember { mutableStateOf(prefs.getFloat(PREF_ZOOM, 1f)) }
     var showAboutDialog by remember { mutableStateOf(false) }
+    var selectedSnapshotFilterNodeIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var snapshotFilterMenuExpanded by remember { mutableStateOf(false) }
 
     val sessionCache = remember { mutableMapOf<String, TableSession>() }
     val coroutineScope = rememberCoroutineScope()
+
+    val snapshotFilterOptions = remember(graphModel) {
+        graphModel
+            ?.nodes
+            ?.filterIsInstance<GraphNode.SnapshotNode>()
+            ?.sortedWith(
+                compareBy<GraphNode.SnapshotNode> { it.data.sequenceNumber ?: Long.MAX_VALUE }
+                    .thenBy { it.data.timestampMs ?: Long.MAX_VALUE }
+                    .thenBy { it.data.snapshotId ?: Long.MAX_VALUE }
+            )
+            ?.map {
+                SnapshotFilterOption(
+                    nodeId = it.id,
+                    snapshotId = it.data.snapshotId,
+                    sequenceNumber = it.data.sequenceNumber,
+                    timestampMs = it.data.timestampMs
+                )
+            }
+            .orEmpty()
+    }
+    val allSnapshotFilterNodeIds = remember(snapshotFilterOptions) { snapshotFilterOptions.map { it.nodeId }.toSet() }
+    val visibleNodeIds = remember(graphModel, selectedSnapshotFilterNodeIds) {
+        graphModel?.let { computeVisibleNodeIdsForSnapshotFilter(it, selectedSnapshotFilterNodeIds) }.orEmpty()
+    }
+    val visibleGraphModel = remember(graphModel, visibleNodeIds) {
+        graphModel?.let { filteredGraphModel(it, visibleNodeIds) }
+    }
+
+    LaunchedEffect(allSnapshotFilterNodeIds) {
+        val constrained = selectedSnapshotFilterNodeIds.intersect(allSnapshotFilterNodeIds)
+        if (constrained != selectedSnapshotFilterNodeIds) {
+            selectedSnapshotFilterNodeIds = constrained
+        }
+    }
+
+    LaunchedEffect(visibleNodeIds) {
+        if (selectedNodeIds.isNotEmpty() && visibleNodeIds.isNotEmpty()) {
+            val constrained = selectedNodeIds.intersect(visibleNodeIds)
+            if (constrained != selectedNodeIds) {
+                selectedNodeIds = constrained
+            }
+        }
+    }
 
     var leftPaneWidth by remember { mutableStateOf(prefs.getFloat(PREF_LEFT_PANE_WIDTH, 250f).dp) }
     var rightPaneWidth by remember { mutableStateOf(prefs.getFloat(PREF_RIGHT_PANE_WIDTH, 300f).dp) }
@@ -540,6 +694,22 @@ fun App() {
     }
 
     fun reapplyCurrentLayout() {
+        val currentGraph = graphModel
+        if (selectedSnapshotFilterNodeIds.isNotEmpty() && currentGraph != null) {
+            val relaid = relayoutVisibleSubgraph(currentGraph, visibleNodeIds)
+            setGraphModelAndBump(relaid)
+            selectedNodeIds = selectedNodeIds.intersect(visibleNodeIds)
+            val tablePath = selectedTablePath
+            if (tablePath != null) {
+                val cacheKey = "$tablePath-rows_$showRows"
+                sessionCache[cacheKey]?.let { existing ->
+                    sessionCache[cacheKey] = existing.copy(graph = relaid, selectedNodeIds = selectedNodeIds)
+                }
+            }
+            errorMsg = null
+            return
+        }
+
         val tablePath = selectedTablePath ?: return
         val cacheKey = "$tablePath-rows_$showRows"
 
@@ -639,9 +809,9 @@ fun App() {
                 }
             )
             "structure" -> {
-                if (graphModel != null) {
+                if (visibleGraphModel != null) {
                     NavigationTree(
-                        graph = graphModel!!,
+                        graph = visibleGraphModel!!,
                         selectedNodeIds = selectedNodeIds,
                         onNodeSelect = { selectedNodeIds = setOf(it.id) }
                     )
@@ -649,7 +819,7 @@ fun App() {
                     Text("No graph loaded.", fontSize = 12.sp, color = Color.Gray, modifier = Modifier.padding(8.dp))
                 }
             }
-            "inspector" -> NodeDetailsContent(graphModel, selectedNodeIds)
+            "inspector" -> NodeDetailsContent(visibleGraphModel, selectedNodeIds)
         }
     }
 
@@ -773,7 +943,7 @@ fun App() {
                         icon = Icons.Default.FullscreenExit,
                         tooltip = "Fit Graph",
                         onClick = {
-                            if (graphModel != null) fitGraphRequest++
+                            if (visibleGraphModel != null) fitGraphRequest++
                         },
                         modifier = Modifier.size(32.dp)
                     )
@@ -783,6 +953,100 @@ fun App() {
                         tooltip = "Re-apply Layout",
                         onClick = { reapplyCurrentLayout() },
                         modifier = Modifier.size(32.dp)
+                    )
+                }
+
+                Spacer(Modifier.width(10.dp))
+
+                ToolbarGroup {
+                    Box {
+                        ToolbarIconButton(
+                            icon = Icons.Default.FilterList,
+                            tooltip = "Filter by snapshots",
+                            onClick = { snapshotFilterMenuExpanded = !snapshotFilterMenuExpanded },
+                            isSelected = selectedSnapshotFilterNodeIds.isNotEmpty(),
+                            modifier = Modifier.size(32.dp)
+                        )
+                        DropdownMenu(
+                            expanded = snapshotFilterMenuExpanded,
+                            onDismissRequest = { snapshotFilterMenuExpanded = false },
+                            modifier = Modifier.widthIn(min = 320.dp, max = 520.dp)
+                        ) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        "Snapshot Filter",
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                },
+                                onClick = {}
+                            )
+                            HorizontalDivider()
+                            DropdownMenuItem(
+                                text = { Text("Select all") },
+                                onClick = { selectedSnapshotFilterNodeIds = allSnapshotFilterNodeIds }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Deselect all") },
+                                onClick = { selectedSnapshotFilterNodeIds = emptySet() }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Invert selection") },
+                                onClick = {
+                                    selectedSnapshotFilterNodeIds = allSnapshotFilterNodeIds - selectedSnapshotFilterNodeIds
+                                }
+                            )
+                            HorizontalDivider()
+                            if (snapshotFilterOptions.isEmpty()) {
+                                DropdownMenuItem(
+                                    text = { Text("No snapshots") },
+                                    onClick = {}
+                                )
+                            } else {
+                                snapshotFilterOptions.forEach { option ->
+                                    val isSelected = option.nodeId in selectedSnapshotFilterNodeIds
+                                    DropdownMenuItem(
+                                        text = {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Checkbox(
+                                                    checked = isSelected,
+                                                    onCheckedChange = null
+                                                )
+                                                Spacer(Modifier.width(8.dp))
+                                                Column {
+                                                    Text(snapshotFilterLabel(option), fontSize = 12.sp)
+                                                    Text(
+                                                        formatAppTimestamp(option.timestampMs),
+                                                        fontSize = 10.sp,
+                                                        color = Color.Gray
+                                                    )
+                                                }
+                                            }
+                                        },
+                                        onClick = {
+                                            selectedSnapshotFilterNodeIds = if (isSelected) {
+                                                selectedSnapshotFilterNodeIds - option.nodeId
+                                            } else {
+                                                selectedSnapshotFilterNodeIds + option.nodeId
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Box(Modifier.width(1.dp).height(16.dp).background(Color(0xFFCCCCCC)))
+                    Text(
+                        text = if (selectedSnapshotFilterNodeIds.isEmpty()) {
+                            "All"
+                        } else {
+                            "${selectedSnapshotFilterNodeIds.size}/${snapshotFilterOptions.size}"
+                        },
+                        fontSize = 11.sp,
+                        modifier = Modifier.padding(horizontal = 8.dp)
                     )
                 }
 
@@ -903,7 +1167,7 @@ fun App() {
                 }
 
                 Box(Modifier.weight(1f).fillMaxHeight().clipToBounds()) {
-                    val currentGraph = graphModel
+                    val currentGraph = visibleGraphModel
                     if (currentGraph != null) {
                         key(graphRevision) {
                             GraphCanvas(
