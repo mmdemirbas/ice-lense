@@ -67,6 +67,8 @@ private const val PREF_ZOOM = "zoom"
 private const val PREF_IS_SELECT_MODE = "is_select_mode"
 private const val PREF_WORKSPACE_ITEMS = "workspace_items"
 private const val PREF_WORKSPACE_EXPANDED_PATHS = "workspace_expanded_paths"
+private const val PREF_SELECTED_TABLE_PATH = "selected_table_path"
+private const val PREF_SELECTED_SNAPSHOT_IDS = "selected_snapshot_ids"
 
 // Data class to hold cached table sessions
 data class TableSession(
@@ -82,6 +84,14 @@ private val appDateTimeFormatter: DateTimeFormatter =
 
 private fun formatAppTimestamp(ms: Long?): String =
     ms?.let { appDateTimeFormatter.format(Instant.ofEpochMilli(it)) } ?: "N/A"
+
+private fun parseLongSet(raw: String): Set<Long> =
+    raw.split(";")
+        .mapNotNull { it.trim().toLongOrNull() }
+        .toSet()
+
+private fun encodeLongSet(values: Set<Long>): String =
+    values.sorted().joinToString(";")
 
 private data class SnapshotFilterOption(
     val nodeId: String,
@@ -147,42 +157,6 @@ private fun filteredGraphModel(graph: GraphModel, visibleNodeIds: Set<String>): 
     val width = nodes.maxOfOrNull { it.x + it.width } ?: 1.0
     val height = nodes.maxOfOrNull { it.y + it.height } ?: 1.0
     return GraphModel(nodes = nodes, edges = edges, width = width, height = height)
-}
-
-private fun relayoutVisibleSubgraph(graph: GraphModel, visibleNodeIds: Set<String>): GraphModel {
-    if (visibleNodeIds.isEmpty()) return graph
-    val visibleNodes = graph.nodes.filter { it.id in visibleNodeIds }
-    if (visibleNodes.isEmpty()) return graph
-
-    val layerXs = visibleNodes.map { it.x }
-        .distinct()
-        .sorted()
-    if (layerXs.isEmpty()) return graph
-
-    val layerIndexByX = layerXs.withIndex().associate { it.value to it.index }
-    val horizontalGap = 230.0
-    val verticalGap = 12.0
-    val baseX = 60.0
-    val baseY = 48.0
-
-    visibleNodes
-        .groupBy { node -> layerIndexByX[node.x] ?: 0 }
-        .toSortedMap()
-        .forEach { (layerIndex, nodesInLayer) ->
-            val x = baseX + layerIndex * horizontalGap
-            var yCursor = baseY
-            nodesInLayer
-                .sortedWith(compareBy({ it.y }, { it.id }))
-                .forEach { node ->
-                    node.x = x
-                    node.y = yCursor
-                    yCursor += node.height + verticalGap
-                }
-        }
-
-    val width = graph.nodes.maxOfOrNull { it.x + it.width } ?: 1.0
-    val height = graph.nodes.maxOfOrNull { it.y + it.height } ?: 1.0
-    return GraphModel(nodes = graph.nodes, edges = graph.edges, width = width, height = height)
 }
 
 @Composable
@@ -328,7 +302,13 @@ fun App() {
         mutableStateOf(deduplicated)
     }
 
-    var selectedTablePath by remember { mutableStateOf<String?>(null) }
+    var selectedTablePath by remember {
+        mutableStateOf(
+            prefs.get(PREF_SELECTED_TABLE_PATH, "")
+                .trim()
+                .ifBlank { null }
+        )
+    }
     var graphModel by remember { mutableStateOf<GraphModel?>(null, neverEqualPolicy()) }
     var graphRevision by remember { mutableIntStateOf(0) }
     var fitGraphRequest by remember { mutableIntStateOf(0) }
@@ -354,11 +334,14 @@ fun App() {
     }
     var isLoadingTable by remember { mutableStateOf(false) }
     var loadRequestId by remember { mutableStateOf(0L) }
-    var showRows by remember { mutableStateOf(true) }
+    var showRows by remember { mutableStateOf(prefs.getBoolean(PREF_SHOW_ROWS, true)) }
     var isSelectMode by remember { mutableStateOf(prefs.getBoolean(PREF_IS_SELECT_MODE, true)) }
     var zoom by remember { mutableStateOf(prefs.getFloat(PREF_ZOOM, 1f)) }
     var showAboutDialog by remember { mutableStateOf(false) }
     var selectedSnapshotFilterNodeIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var selectedSnapshotFilterSnapshotIds by remember {
+        mutableStateOf(parseLongSet(prefs.get(PREF_SELECTED_SNAPSHOT_IDS, "")))
+    }
     var snapshotFilterMenuExpanded by remember { mutableStateOf(false) }
 
     val sessionCache = remember { mutableMapOf<String, TableSession>() }
@@ -384,6 +367,9 @@ fun App() {
             .orEmpty()
     }
     val allSnapshotFilterNodeIds = remember(snapshotFilterOptions) { snapshotFilterOptions.map { it.nodeId }.toSet() }
+    val nodeIdToSnapshotId = remember(snapshotFilterOptions) {
+        snapshotFilterOptions.associate { it.nodeId to it.snapshotId }
+    }
     val visibleNodeIds = remember(graphModel, selectedSnapshotFilterNodeIds) {
         graphModel?.let { computeVisibleNodeIdsForSnapshotFilter(it, selectedSnapshotFilterNodeIds) }.orEmpty()
     }
@@ -395,6 +381,16 @@ fun App() {
         val constrained = selectedSnapshotFilterNodeIds.intersect(allSnapshotFilterNodeIds)
         if (constrained != selectedSnapshotFilterNodeIds) {
             selectedSnapshotFilterNodeIds = constrained
+        }
+    }
+
+    LaunchedEffect(snapshotFilterOptions, selectedSnapshotFilterSnapshotIds) {
+        val desiredNodeIds = snapshotFilterOptions
+            .filter { option -> option.snapshotId != null && option.snapshotId in selectedSnapshotFilterSnapshotIds }
+            .map { it.nodeId }
+            .toSet()
+        if (desiredNodeIds != selectedSnapshotFilterNodeIds) {
+            selectedSnapshotFilterNodeIds = desiredNodeIds
         }
     }
 
@@ -585,6 +581,14 @@ fun App() {
         graphRevision++
     }
 
+    fun updateSnapshotFilterSelection(nodeIds: Set<String>) {
+        val constrained = nodeIds.intersect(allSnapshotFilterNodeIds)
+        selectedSnapshotFilterNodeIds = constrained
+        val snapshotIds = constrained.mapNotNull { nodeIdToSnapshotId[it] }.toSet()
+        selectedSnapshotFilterSnapshotIds = snapshotIds
+        prefs.put(PREF_SELECTED_SNAPSHOT_IDS, encodeLongSet(snapshotIds))
+    }
+
     fun computeTableFingerprint(tablePath: String): String {
         val metadataDir = File(tablePath, "metadata")
         if (!metadataDir.exists() || !metadataDir.isDirectory) return "missing"
@@ -606,8 +610,10 @@ fun App() {
         forceReloadFromFs: Boolean = false,
         preservePositions: Boolean = false
     ) {
-        val cacheKey = "$tablePath-rows_$withRows"
-        selectedTablePath = tablePath
+        val normalizedTablePath = canonicalWorkspacePath(tablePath)
+        val cacheKey = "$normalizedTablePath-rows_$withRows"
+        selectedTablePath = normalizedTablePath
+        prefs.put(PREF_SELECTED_TABLE_PATH, normalizedTablePath)
 
         if (!forceRelayout && !forceReloadFromFs && sessionCache.containsKey(cacheKey)) {
             val session = sessionCache[cacheKey]!!
@@ -627,14 +633,14 @@ fun App() {
             try {
                 val previousSession = sessionCache[cacheKey]
                 val reloaded = withContext(Dispatchers.Default) {
-                    val fingerprint = computeTableFingerprint(tablePath)
+                    val fingerprint = computeTableFingerprint(normalizedTablePath)
                     if (fingerprint == "missing" && previousSession != null) {
                         return@withContext previousSession.copy(fingerprint = "missing")
                     }
                     if (forceReloadFromFs && !forceRelayout && previousSession != null && previousSession.fingerprint == fingerprint) {
                         return@withContext previousSession
                     }
-                    val tableModel = UnifiedTableModel(Paths.get(tablePath))
+                    val tableModel = UnifiedTableModel(Paths.get(normalizedTablePath))
                     val newGraph = GraphLayoutService.layoutGraph(tableModel, withRows)
                     if (preservePositions && previousSession != null) {
                         val oldById = previousSession.graph.nodes.associateBy { it.id }
@@ -696,17 +702,58 @@ fun App() {
     fun reapplyCurrentLayout() {
         val currentGraph = graphModel
         if (selectedSnapshotFilterNodeIds.isNotEmpty() && currentGraph != null) {
-            val relaid = relayoutVisibleSubgraph(currentGraph, visibleNodeIds)
-            setGraphModelAndBump(relaid)
-            selectedNodeIds = selectedNodeIds.intersect(visibleNodeIds)
-            val tablePath = selectedTablePath
-            if (tablePath != null) {
-                val cacheKey = "$tablePath-rows_$showRows"
-                sessionCache[cacheKey]?.let { existing ->
-                    sessionCache[cacheKey] = existing.copy(graph = relaid, selectedNodeIds = selectedNodeIds)
+            val tablePath = selectedTablePath ?: return
+            val cacheKey = "$tablePath-rows_$showRows"
+            isLoadingTable = true
+            errorMsg = null
+            val requestId = loadRequestId + 1
+            loadRequestId = requestId
+
+            coroutineScope.launch {
+                try {
+                    val existingTableModel = sessionCache[cacheKey]?.table
+                    val fingerprint = withContext(Dispatchers.Default) { computeTableFingerprint(tablePath) }
+                    val tableModel = existingTableModel ?: withContext(Dispatchers.Default) {
+                        UnifiedTableModel(Paths.get(tablePath))
+                    }
+                    val fullyLaidOut = withContext(Dispatchers.Default) {
+                        GraphLayoutService.layoutGraph(tableModel, showRows)
+                    }
+                    if (requestId != loadRequestId) return@launch
+
+                    val laidOutById = fullyLaidOut.nodes.associateBy { it.id }
+                    currentGraph.nodes.forEach { node ->
+                        if (node.id in visibleNodeIds) {
+                            laidOutById[node.id]?.let { laidOut ->
+                                node.x = laidOut.x
+                                node.y = laidOut.y
+                            }
+                        }
+                    }
+                    val relaid = GraphModel(
+                        nodes = currentGraph.nodes,
+                        edges = currentGraph.edges,
+                        width = currentGraph.nodes.maxOfOrNull { it.x + it.width } ?: 1.0,
+                        height = currentGraph.nodes.maxOfOrNull { it.y + it.height } ?: 1.0
+                    )
+                    setGraphModelAndBump(relaid)
+                    selectedNodeIds = selectedNodeIds.intersect(visibleNodeIds)
+                    sessionCache[cacheKey] = TableSession(
+                        table = tableModel,
+                        graph = relaid,
+                        selectedNodeIds = selectedNodeIds,
+                        fingerprint = fingerprint
+                    )
+                    errorMsg = null
+                } catch (e: Exception) {
+                    if (requestId != loadRequestId) return@launch
+                    errorMsg = e.message
+                } finally {
+                    if (requestId == loadRequestId) {
+                        isLoadingTable = false
+                    }
                 }
             }
-            errorMsg = null
             return
         }
 
@@ -982,20 +1029,40 @@ fun App() {
                                 onClick = {}
                             )
                             HorizontalDivider()
-                            DropdownMenuItem(
-                                text = { Text("Select all") },
-                                onClick = { selectedSnapshotFilterNodeIds = allSnapshotFilterNodeIds }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Deselect all") },
-                                onClick = { selectedSnapshotFilterNodeIds = emptySet() }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Invert selection") },
-                                onClick = {
-                                    selectedSnapshotFilterNodeIds = allSnapshotFilterNodeIds - selectedSnapshotFilterNodeIds
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                TextButton(
+                                    onClick = { updateSnapshotFilterSelection(allSnapshotFilterNodeIds) },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                    modifier = Modifier.height(30.dp)
+                                ) {
+                                    Icon(Icons.Default.DoneAll, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("All", fontSize = 11.sp)
                                 }
-                            )
+                                TextButton(
+                                    onClick = { updateSnapshotFilterSelection(emptySet()) },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                    modifier = Modifier.height(30.dp)
+                                ) {
+                                    Icon(Icons.Default.Clear, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("None", fontSize = 11.sp)
+                                }
+                                TextButton(
+                                    onClick = {
+                                        updateSnapshotFilterSelection(allSnapshotFilterNodeIds - selectedSnapshotFilterNodeIds)
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                    modifier = Modifier.height(30.dp)
+                                ) {
+                                    Icon(Icons.Default.SwapHoriz, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Invert", fontSize = 11.sp)
+                                }
+                            }
                             HorizontalDivider()
                             if (snapshotFilterOptions.isEmpty()) {
                                 DropdownMenuItem(
@@ -1027,11 +1094,12 @@ fun App() {
                                             }
                                         },
                                         onClick = {
-                                            selectedSnapshotFilterNodeIds = if (isSelected) {
+                                            val updated = if (isSelected) {
                                                 selectedSnapshotFilterNodeIds - option.nodeId
                                             } else {
                                                 selectedSnapshotFilterNodeIds + option.nodeId
                                             }
+                                            updateSnapshotFilterSelection(updated)
                                         }
                                     )
                                 }
@@ -1480,6 +1548,21 @@ fun App() {
         }
     }
 
+    LaunchedEffect(showRows) {
+        prefs.putBoolean(PREF_SHOW_ROWS, showRows)
+    }
+
+    LaunchedEffect(snapshotFilterOptions, selectedSnapshotFilterNodeIds) {
+        if (snapshotFilterOptions.isEmpty()) return@LaunchedEffect
+        val snapshotIds = selectedSnapshotFilterNodeIds
+            .mapNotNull { nodeIdToSnapshotId[it] }
+            .toSet()
+        if (snapshotIds != selectedSnapshotFilterSnapshotIds) {
+            selectedSnapshotFilterSnapshotIds = snapshotIds
+            prefs.put(PREF_SELECTED_SNAPSHOT_IDS, encodeLongSet(snapshotIds))
+        }
+    }
+
     LaunchedEffect(selectedTablePath, showRows) {
         while (isActive) {
             val tablePath = selectedTablePath
@@ -1502,6 +1585,10 @@ fun App() {
     }
 
     LaunchedEffect(Unit) {
+        val restoredTablePath = selectedTablePath
+        if (restoredTablePath != null && graphModel == null && !isLoadingTable) {
+            loadTable(tablePath = restoredTablePath, withRows = showRows)
+        }
         while (isActive) {
             refreshWarehouseTables()
             delay(3000)
