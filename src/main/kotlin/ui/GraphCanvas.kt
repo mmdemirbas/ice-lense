@@ -97,6 +97,7 @@ fun GraphCanvas(
 
     val nodeById = graph.nodes.associateBy { it.id }
     val selectedNodes = graph.nodes.filter { it.id in selectedNodeIds }
+    val latestSelectedNodeIds by rememberUpdatedState(selectedNodeIds)
 
     val snapshotManifestOutLaneByEdgeId = remember(graph.nodes, graph.edges) {
         val bySource = graph.edges.groupBy { it.fromId }
@@ -505,10 +506,10 @@ fun GraphCanvas(
                                     }
                                 }
                             }
-                            .pointerInput(node.id, selectedNodeIds, localZoom) {
+                            .pointerInput(node.id, localZoom) {
                                 detectDragGestures(
                                     onDragStart = {
-                                        if (!pickSelectionArmed && !selectedNodeIds.contains(node.id)) {
+                                        if (!pickSelectionArmed && !latestSelectedNodeIds.contains(node.id)) {
                                             onSelectionChange(setOf(node.id))
                                         }
                                     }
@@ -517,7 +518,7 @@ fun GraphCanvas(
                                     val dx = dragAmount.x
                                     val dy = dragAmount.y
 
-                                    val currentSelectedIds = selectedNodeIds
+                                    val currentSelectedIds = latestSelectedNodeIds
                                     val currentSelectedNodes = graph.nodes.filter { it.id in currentSelectedIds }
                                     if (node.id in currentSelectedIds) {
                                         currentSelectedNodes.forEach { n ->
