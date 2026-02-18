@@ -97,6 +97,19 @@ object GraphLayoutService {
             return simpleId
         }
 
+        fun identifierFieldNamesForSchema(metadata: TableMetadata, schemaId: Int?): List<String> {
+            val schema = metadata.schemas
+                .firstOrNull { it.schemaId == schemaId }
+                ?: metadata.schemas.firstOrNull { it.schemaId == metadata.currentSchemaId }
+                ?: metadata.schemas.firstOrNull()
+                ?: return emptyList()
+            val identifierIds = schema.identifierFieldIds.toSet()
+            if (identifierIds.isEmpty()) return emptyList()
+            return schema.fields
+                .filter { field -> (field.id ?: -1) in identifierIds }
+                .mapNotNull { field -> field.name }
+        }
+
         fun addErrorNode(parentId: String, title: String, error: UnifiedReadError) {
             val dedupeKey = "$parentId|$title|${error.stage}|${error.path}|${error.message}"
             if (!seenErrorKeys.add(dedupeKey)) return
@@ -187,6 +200,7 @@ object GraphLayoutService {
             )
             sortedSnapshots.forEach { snapshot ->
                 val snap = snapshot.metadata
+                val snapshotIdentifierFields = identifierFieldNamesForSchema(meta, snap.schemaId)
                 val sId = "snap_${snap.snapshotId}"
                 if (!elkNodes.containsKey(sId)) {
                     val simpleSnapshotId = nextSnapshotSimpleId++
@@ -314,7 +328,8 @@ object GraphLayoutService {
                                                         logicalNodes[rId] = GraphNode.RowNode(
                                                             rId,
                                                             enrichedData,
-                                                            contentType
+                                                            contentType,
+                                                            snapshotIdentifierFields
                                                         )
 
                                                         ElkGraphUtil.createSimpleEdge(
@@ -666,59 +681,81 @@ object GraphLayoutService {
                 parent.y = anchorChild.y
             }
 
-//            // Fallback only for parents with no children:
-//            // preserve parent-defined order by positioning them between neighboring anchored parents.
-//            var index = 0
-//            while (index < orderedParents.size) {
-//                if (hasChildrenByParentId[orderedParents[index].id] == true) {
-//                    index++
-//                    continue
-//                }
-//
-//                val start = index
-//                while (index + 1 < orderedParents.size && hasChildrenByParentId[orderedParents[index + 1].id] == false) {
-//                    index++
-//                }
-//                val end = index
-//
-//                val prevAnchorIndex = (start - 1 downTo 0).firstOrNull {
-//                    hasChildrenByParentId[orderedParents[it].id] == true
-//                }
-//                val nextAnchorIndex = (end + 1 until orderedParents.size).firstOrNull {
-//                    hasChildrenByParentId[orderedParents[it].id] == true
-//                }
-//
-//                val runSize = end - start + 1
-//                val step = 24.0
-//
-//                when {
-//                    prevAnchorIndex != null && nextAnchorIndex != null -> {
-//                        val y0 = orderedParents[prevAnchorIndex].y
-//                        val y1 = orderedParents[nextAnchorIndex].y
-//                        val delta = (y1 - y0) / (runSize + 1)
-//                        for (offset in 0 until runSize) {
-//                            orderedParents[start + offset].y = y0 + delta * (offset + 1)
-//                        }
-//                    }
-//                    prevAnchorIndex != null -> {
-//                        val y0 = orderedParents[prevAnchorIndex].y
-//                        for (offset in 0 until runSize) {
-//                            orderedParents[start + offset].y = y0 + step * (offset + 1)
-//                        }
-//                    }
-//                    nextAnchorIndex != null -> {
-//                        val y1 = orderedParents[nextAnchorIndex].y
-//                        for (offset in runSize - 1 downTo 0) {
-//                            orderedParents[start + offset].y = y1 - step * (runSize - offset)
-//                        }
-//                    }
-//                    else -> {
-//                        // No anchored parents in this layer. Keep existing y positions.
-//                    }
-//                }
-//
-//                index++
-//            }
+            // Fallback for parents with no children:
+            // preserve parent order by positioning runs of unanchored parents around nearby anchors.
+            // This prevents empty metadata versions (e.g. v1 without snapshots) from collapsing onto v2.
+            val fallbackGap = 8.0
+            var index = 0
+            while (index < orderedParents.size) {
+                if (hasChildrenByParentId[orderedParents[index].id] == true) {
+                    index++
+                    continue
+                }
+
+                val start = index
+                while (
+                    index + 1 < orderedParents.size &&
+                    hasChildrenByParentId[orderedParents[index + 1].id] == false
+                ) {
+                    index++
+                }
+                val end = index
+
+                val prevAnchorIndex = (start - 1 downTo 0).firstOrNull {
+                    hasChildrenByParentId[orderedParents[it].id] == true
+                }
+                val nextAnchorIndex = (end + 1 until orderedParents.size).firstOrNull {
+                    hasChildrenByParentId[orderedParents[it].id] == true
+                }
+
+                when {
+                    prevAnchorIndex != null && nextAnchorIndex != null -> {
+                        val runNodes = orderedParents.subList(start, end + 1)
+                        val totalRunHeight = runNodes.sumOf { it.height } +
+                            fallbackGap * (runNodes.size - 1).coerceAtLeast(0)
+
+                        val prevAnchor = orderedParents[prevAnchorIndex]
+                        val nextAnchor = orderedParents[nextAnchorIndex]
+                        val minY = prevAnchor.y + prevAnchor.height + fallbackGap
+                        val maxY = nextAnchor.y - totalRunHeight
+                        var currentY = if (maxY >= minY) {
+                            minY + (maxY - minY) / 2.0
+                        } else {
+                            minY
+                        }
+
+                        runNodes.forEach { node ->
+                            node.y = currentY
+                            currentY += node.height + fallbackGap
+                        }
+                    }
+                    prevAnchorIndex != null -> {
+                        var currentY =
+                            orderedParents[prevAnchorIndex].y +
+                                orderedParents[prevAnchorIndex].height +
+                                fallbackGap
+                        for (offset in start..end) {
+                            val node = orderedParents[offset]
+                            node.y = currentY
+                            currentY += node.height + fallbackGap
+                        }
+                    }
+                    nextAnchorIndex != null -> {
+                        var currentTop = orderedParents[nextAnchorIndex].y
+                        for (offset in end downTo start) {
+                            val node = orderedParents[offset]
+                            currentTop -= node.height
+                            node.y = currentTop
+                            currentTop -= fallbackGap
+                        }
+                    }
+                    else -> {
+                        // No anchored parents in this layer. Keep existing y positions.
+                    }
+                }
+
+                index++
+            }
         }
 
         // Child -> parent layering order

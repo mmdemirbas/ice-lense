@@ -14,3 +14,14 @@ NEW FEATURE
 
 MORE PLATFORMS
 - Consider making this project available as an IntelliJ IDEA plugin
+
+
+
+- We are using "File 24 | Row 0" format in data rows. But "File 24 | Pos 0" in pos delete rows (target). Let's make them same to enhance UX. Use "File 24, Row 0" format for both.
+- local_file_path is unnecessary in data/delete row cards face. Instead include the row details (like the column values) in a brief way.
+- In file card faces remove the format and include the filename instead (not full path, only name without any prefix or label like 'path: '). Same for snapsots and manifests. Just include the file name. It will help to see the related files quickly.
+
+
+- Let's change rows titles like this: "ROW 14.1: EQ DEL", "ROW 15.2: POS DEL", "ROW 13.0: DATA". Here we are using "file.row" as the number. So we should remove this information from the card face to avoid unnecessary information duplication in UI. Please also update the "target" format in pos delete rows to this e.g. 13.0 etc.
+- Make the filenames in the cards smaller and maybe wrap (extend to multi-line) so it could fit better.
+- Include column details other than identifier field columns also in data rows (not needed for delete rows).

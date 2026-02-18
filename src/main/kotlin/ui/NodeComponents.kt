@@ -38,6 +38,29 @@ private fun rowContentLabel(content: Int): String = when (content) {
     else -> "DATA ROW"
 }
 
+private fun rowStatusShortLabel(content: Int): String = when (content) {
+    1 -> "POS DEL"
+    2 -> "EQ DEL"
+    else -> "DATA"
+}
+
+private fun rowCardDetailEntries(node: GraphNode.RowNode): List<Map.Entry<String, Any>> {
+    val metaKeys = setOf("file_no", "row_idx", "target_file", "target_file_no", "local_file_path")
+    val filtered = node.data.entries.filter { (key, _) ->
+        key !in metaKeys &&
+            !(node.content == 1 && (key == "file_path" || key == "pos" || key == "position"))
+    }
+    if (filtered.isEmpty()) return emptyList()
+    if (node.content != 0) return filtered
+
+    val identifierSet = node.identifierFields.toSet()
+    if (identifierSet.isEmpty()) return filtered
+
+    val nonIdentifiers = filtered.filter { (key, _) -> key !in identifierSet }
+    val identifiers = filtered.filter { (key, _) -> key in identifierSet }
+    return if (nonIdentifiers.isNotEmpty()) nonIdentifiers + identifiers else filtered
+}
+
 private fun isPrimaryMetadataFile(fileName: String): Boolean {
     val base = fileName.removeSuffix(".metadata.json")
     return fileName.endsWith(".metadata.json") &&
@@ -324,6 +347,7 @@ fun MetadataCard(node: GraphNode.MetadataNode, isSelected: Boolean = false) {
 fun SnapshotCard(node: GraphNode.SnapshotNode, isSelected: Boolean = false) {
     val borderWidth = if (isSelected) 4.dp else 2.dp
     val borderColor = if (isSelected) Color.Black else Color(0xFF1976D2)
+    val fileName = fileNameFromPath(node.localPath ?: node.data.manifestList)
     Box(
         modifier = Modifier
         .size(node.width.dp, node.height.dp)
@@ -332,7 +356,7 @@ fun SnapshotCard(node: GraphNode.SnapshotNode, isSelected: Boolean = false) {
         .padding(8.dp)) {
         Column {
             Text("SNAPSHOT ${node.simpleId}", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.DarkGray)
-            Text("Op: ${node.data.summary["operation"] ?: "unknown"}", fontSize = 12.sp)
+            Text(fileName, fontSize = 9.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -343,6 +367,7 @@ fun ManifestCard(node: GraphNode.ManifestNode, isSelected: Boolean = false) {
     val borderColor = if (isSelected) Color.Black else getGraphNodeBorderColor(node)
     val borderWidth = if (isSelected) 4.dp else 2.dp
     val contentLabel = manifestContentLabel(node.data.content)
+    val fileName = fileNameFromPath(node.localPath ?: node.data.manifestPath)
 
     Box(
         modifier = Modifier
@@ -356,7 +381,7 @@ fun ManifestCard(node: GraphNode.ManifestNode, isSelected: Boolean = false) {
                 fontSize = 9.sp,
                 fontWeight = FontWeight.Bold
             )
-            Text("Added: ${node.data.addedFilesCount} files", fontSize = 11.sp)
+            Text(fileName, fontSize = 9.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -366,6 +391,7 @@ fun FileCard(node: GraphNode.FileNode, isSelected: Boolean = false) {
     val label = "FILE ${node.simpleId}: ${fileContentLabel(node.data.content)}"
     val borderWidth = if (isSelected) 3.dp else 1.dp
     val borderColor = if (isSelected) Color.Black else getGraphNodeBorderColor(node)
+    val fileName = fileNameFromPath(node.localPath ?: node.data.filePath)
 
     Box(
         modifier = Modifier
@@ -380,7 +406,7 @@ fun FileCard(node: GraphNode.FileNode, isSelected: Boolean = false) {
                 fontWeight = FontWeight.Bold,
                 color = Color.DarkGray
             )
-            Text(node.data.fileFormat.orEmpty(), fontSize = 10.sp)
+            Text(fileName, fontSize = 8.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text("${node.data.recordCount} rows", fontSize = 10.sp)
         }
     }
@@ -394,6 +420,7 @@ fun RowCard(node: GraphNode.RowNode, isSelected: Boolean = false) {
     val rowIdx = node.data["row_idx"]?.toString() ?: "?"
     val targetFileNo = node.data["target_file_no"]?.toString()
     val targetRowPos = node.data["pos"]?.toString() ?: node.data["position"]?.toString()
+    val detailEntries = rowCardDetailEntries(node)
     Box(
         modifier = Modifier
         .size(node.width.dp, node.height.dp)
@@ -401,33 +428,22 @@ fun RowCard(node: GraphNode.RowNode, isSelected: Boolean = false) {
         .border(BorderStroke(borderWidth, borderColor), RoundedCornerShape(4.dp))
         .padding(6.dp)) {
         Column(Modifier.fillMaxSize()) {
-            val label = rowContentLabel(node.content)
             Text(
-                label,
+                "ROW $fileNo.$rowIdx: ${rowStatusShortLabel(node.content)}",
                 fontSize = 9.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.DarkGray
             )
-            Text(
-                "File $fileNo | Row $rowIdx",
-                fontSize = 9.sp,
-                color = Color.DarkGray
-            )
             if (node.content == 1 && (targetFileNo != null || targetRowPos != null)) {
+                val targetLabel = "${targetFileNo ?: "?"}.${targetRowPos ?: "?"}"
                 Text(
-                    "Target: File ${targetFileNo ?: "?"} | Pos ${targetRowPos ?: "?"}",
+                    "Target: $targetLabel",
                     fontSize = 9.sp,
                     color = Color.DarkGray
                 )
             }
             Spacer(Modifier.height(2.dp))
-            node.data.entries
-                .filter { (k, _) ->
-                    k != "file_no" &&
-                        k != "row_idx" &&
-                        k != "target_file_no" &&
-                        !(node.content == 1 && k == "file_path" && node.data.containsKey("target_file"))
-                }
+            detailEntries
                 .take(3)
                 .forEach { (k, v) ->
                 Text(
@@ -437,7 +453,7 @@ fun RowCard(node: GraphNode.RowNode, isSelected: Boolean = false) {
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            if (node.data.size > 3) {
+            if (detailEntries.size > 3) {
                 Text("...", fontSize = 10.sp, color = Color.Gray)
             }
         }
