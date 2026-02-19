@@ -32,13 +32,14 @@ fun ToolWindowBar(
     onWindowDragCancel: (() -> Unit)? = null,
     isDropTarget: Boolean = false
 ) {
+    val colors = MaterialTheme.colorScheme
     val isVertical = anchor == model.ToolWindowAnchor.LEFT_TOP ||
         anchor == model.ToolWindowAnchor.LEFT_BOTTOM ||
         anchor == model.ToolWindowAnchor.RIGHT_TOP ||
         anchor == model.ToolWindowAnchor.RIGHT_BOTTOM
     val barColor = when {
-        isDropTarget -> Color(0xFFD6E9FF)
-        else -> Color(0xFFF0F0F0)
+        isDropTarget -> colors.primaryContainer.copy(alpha = 0.72f)
+        else -> colors.surfaceVariant
     }
     if (isVertical) {
         Column(
@@ -54,7 +55,7 @@ fun ToolWindowBar(
                 Box(
                     modifier = Modifier
                         .size(32.dp)
-                        .background(if (isActive) Color(0xFFE0E0E0) else Color.Transparent)
+                        .background(if (isActive) colors.surface else Color.Transparent)
                         .onGloballyPositioned { coords -> iconBounds = coords.boundsInWindow() }
                         .clickable { onWindowClick(id) },
                     contentAlignment = Alignment.Center
@@ -83,7 +84,7 @@ fun ToolWindowBar(
                         imageVector = icon,
                         contentDescription = id,
                         modifier = Modifier.size(20.dp),
-                        tint = if (isActive) Color(0xFF1976D2) else Color.DarkGray
+                        tint = if (isActive) colors.primary else colors.onSurfaceVariant
                     )
                 }
             }
@@ -102,7 +103,7 @@ fun ToolWindowBar(
                 Box(
                     modifier = Modifier
                         .size(32.dp)
-                        .background(if (isActive) Color(0xFFE0E0E0) else Color.Transparent)
+                        .background(if (isActive) colors.surface else Color.Transparent)
                         .onGloballyPositioned { coords -> iconBounds = coords.boundsInWindow() }
                         .clickable { onWindowClick(id) },
                     contentAlignment = Alignment.Center
@@ -131,7 +132,7 @@ fun ToolWindowBar(
                         imageVector = icon,
                         contentDescription = id,
                         modifier = Modifier.size(20.dp),
-                        tint = if (isActive) Color(0xFF1976D2) else Color.DarkGray
+                        tint = if (isActive) colors.primary else colors.onSurfaceVariant
                     )
                 }
             }
@@ -150,13 +151,14 @@ fun ToolWindowPane(
     onDragCancel: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxSize().background(Color.White)) {
+    val colors = MaterialTheme.colorScheme
+    Column(modifier = Modifier.fillMaxSize().background(colors.surface)) {
         var titleBounds by remember { mutableStateOf<Rect?>(null) }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(28.dp)
-                .background(if (isBeingDragged) Color(0xFFDCEAFE) else Color(0xFFE8E8E8))
+                .background(if (isBeingDragged) colors.primaryContainer.copy(alpha = 0.72f) else colors.surfaceVariant)
                 .padding(horizontal = 8.dp)
                 .onGloballyPositioned { coords -> titleBounds = coords.boundsInWindow() }
                 .pointerInput(onDragStart, onDragMove, onDragEnd, onDragCancel) {
@@ -181,7 +183,7 @@ fun ToolWindowPane(
                 text = title.uppercase(),
                 fontSize = 10.sp,
                 fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                color = Color.Gray,
+                color = colors.onSurfaceVariant,
                 modifier = Modifier.weight(1f)
             )
             IconButton(onClick = onClose, modifier = Modifier.size(20.dp)) {

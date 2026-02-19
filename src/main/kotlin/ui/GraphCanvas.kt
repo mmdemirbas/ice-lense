@@ -9,6 +9,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -45,6 +46,24 @@ private fun tonedEdgeColor(base: Color, sourceId: String): Color {
     return Color(ch(base.red), ch(base.green), ch(base.blue), base.alpha)
 }
 
+private fun perceivedBrightness(color: Color): Float =
+    0.2126f * color.red + 0.7152f * color.green + 0.0722f * color.blue
+
+private fun liftEdgeColor(base: Color, target: Color, minimumBrightness: Float): Color {
+    val baseBrightness = perceivedBrightness(base)
+    if (baseBrightness >= minimumBrightness) return base
+
+    val targetBrightness = perceivedBrightness(target)
+    val denominator = (targetBrightness - baseBrightness).coerceAtLeast(0.001f)
+    val mix = ((minimumBrightness - baseBrightness) / denominator).coerceIn(0f, 1f)
+    return Color(
+        red = base.red + (target.red - base.red) * mix,
+        green = base.green + (target.green - base.green) * mix,
+        blue = base.blue + (target.blue - base.blue) * mix,
+        alpha = base.alpha
+    )
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun GraphCanvas(
@@ -59,6 +78,9 @@ fun GraphCanvas(
     onEmptyAreaDoubleClick: () -> Unit = {},
     onNodeDoubleClick: (GraphNode) -> Unit = {},
 ) {
+    val colors = MaterialTheme.colorScheme
+    val isDarkSurface = perceivedBrightness(colors.surface) < 0.5f
+    val selectionColor = if (isDarkSurface) Color(0xFF00E5FF) else colors.primary
     // Consumed to ensure recomposition/reset-sensitive logic sees relayout events.
     @Suppress("UNUSED_VARIABLE")
     val _graphRevision = graphRevision
@@ -192,7 +214,7 @@ fun GraphCanvas(
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFFE0E0E0))
+            .background(colors.surfaceVariant)
             .pointerInput(isSelectMode) {
                 awaitPointerEventScope {
                     while (true) {
@@ -474,7 +496,12 @@ fun GraphCanvas(
                     val target = nodeById[edge.toId]
 
                     if (source != null && target != null) {
-                        val edgeColor = tonedEdgeColor(getGraphNodeBorderColor(source), source.id)
+                        val baseEdgeColor = tonedEdgeColor(getGraphNodeBorderColor(source), source.id)
+                        val edgeColor = if (isDarkSurface) {
+                            liftEdgeColor(baseEdgeColor, colors.onSurface, minimumBrightness = 0.54f)
+                        } else {
+                            baseEdgeColor
+                        }
                         if (activeNodeIds.contains(edge.fromId) || activeNodeIds.contains(edge.toId)) {
                             drawEdge(edge, source, target, edgeColor, strokeWidth = 6f)
                         } else {
@@ -601,12 +628,12 @@ fun GraphCanvas(
                 val height = kotlin.math.abs(marqueeStart!!.y - marqueeEnd!!.y)
 
                 drawRect(
-                    color = Color(0xFF1976D2).copy(alpha = 0.2f),
+                    color = selectionColor.copy(alpha = if (isDarkSurface) 0.4f else 0.2f),
                     topLeft = Offset(left, top),
                     size = Size(width, height)
                 )
                 drawRect(
-                    color = Color(0xFF1976D2),
+                    color = selectionColor,
                     topLeft = Offset(left, top),
                     size = Size(width, height),
                     style = Stroke(1.dp.toPx())
@@ -619,8 +646,8 @@ fun GraphCanvas(
                 .align(Alignment.BottomEnd)
                 .padding(16.dp)
                 .size(240.dp, 160.dp)
-                .background(Color.White.copy(alpha = 0.85f), RoundedCornerShape(8.dp))
-                .border(1.dp, Color.Gray, RoundedCornerShape(8.dp))
+                .background(colors.surface.copy(alpha = 0.85f), RoundedCornerShape(8.dp))
+                .border(1.dp, colors.outlineVariant, RoundedCornerShape(8.dp))
                 .pointerInput(Unit) {
                     detectDragGestures { change, dragAmount ->
                         change.consume()
@@ -660,7 +687,7 @@ fun GraphCanvas(
                     val vpY = -offsetAnim.value.y / localZoom
 
                     drawRect(
-                        color = Color.Red.copy(alpha = 0.4f),
+                        color = colors.primary.copy(alpha = 0.55f),
                         topLeft = Offset((vpX - extents.minX) * mapScale, (vpY - extents.minY) * mapScale),
                         size = Size(vpW * mapScale, vpH * mapScale),
                         style = Stroke(width = 3f)

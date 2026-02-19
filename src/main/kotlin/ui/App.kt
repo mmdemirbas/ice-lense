@@ -69,6 +69,7 @@ private const val PREF_WORKSPACE_ITEMS = "workspace_items"
 private const val PREF_WORKSPACE_EXPANDED_PATHS = "workspace_expanded_paths"
 private const val PREF_SELECTED_TABLE_PATH = "selected_table_path"
 private const val PREF_SELECTED_SNAPSHOT_IDS = "selected_snapshot_ids"
+private const val PREF_IS_DARK_MODE = "is_dark_mode"
 
 // Data class to hold cached table sessions
 data class TableSession(
@@ -92,6 +93,44 @@ private fun parseLongSet(raw: String): Set<Long> =
 
 private fun encodeLongSet(values: Set<Long>): String =
     values.sorted().joinToString(";")
+
+private val IceLensLightColorScheme = lightColorScheme(
+    primary = Color(0xFF1565C0),
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFFDDEBFF),
+    onPrimaryContainer = Color(0xFF001C3B),
+    secondary = Color(0xFF006B5F),
+    onSecondary = Color.White,
+    background = Color(0xFFF5F7FA),
+    onBackground = Color(0xFF121417),
+    surface = Color(0xFFFFFFFF),
+    onSurface = Color(0xFF121417),
+    surfaceVariant = Color(0xFFE9EEF5),
+    onSurfaceVariant = Color(0xFF475465),
+    outline = Color(0xFF7A8798),
+    outlineVariant = Color(0xFFB8C2D0),
+    error = Color(0xFFBA1A1A),
+    onError = Color.White
+)
+
+private val IceLensDarkColorScheme = darkColorScheme(
+    primary = Color(0xFFA9C7FF),
+    onPrimary = Color(0xFF00315F),
+    primaryContainer = Color(0xFF004A8A),
+    onPrimaryContainer = Color(0xFFD9E7FF),
+    secondary = Color(0xFF86D7CA),
+    onSecondary = Color(0xFF003730),
+    background = Color(0xFF101317),
+    onBackground = Color(0xFFE2E6EC),
+    surface = Color(0xFF161A20),
+    onSurface = Color(0xFFE2E6EC),
+    surfaceVariant = Color(0xFF2A3038),
+    onSurfaceVariant = Color(0xFFC2CAD6),
+    outline = Color(0xFF8C96A3),
+    outlineVariant = Color(0xFF444C58),
+    error = Color(0xFFFFB4AB),
+    onError = Color(0xFF690005)
+)
 
 private data class SnapshotFilterOption(
     val nodeId: String,
@@ -191,7 +230,7 @@ fun DraggableHorizontalDivider(onDrag: (Float) -> Unit) {
             }) {
         HorizontalDivider(
             modifier = Modifier.align(Alignment.Center),
-            color = Color(0xFF9E9E9E),
+            color = MaterialTheme.colorScheme.outlineVariant,
             thickness = 1.dp
         )
     }
@@ -201,8 +240,8 @@ fun DraggableHorizontalDivider(onDrag: (Float) -> Unit) {
 fun ToolbarGroup(content: @Composable RowScope.() -> Unit) {
     Surface(
         shape = RoundedCornerShape(4.dp),
-        border = BorderStroke(1.dp, Color(0xFFCCCCCC)),
-        color = Color(0xFFF8F8F8)
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        color = MaterialTheme.colorScheme.surface
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -226,11 +265,11 @@ fun ToolbarIconButton(
         tooltip = {
             Box(
                 modifier = Modifier
-                    .background(Color(0xEE333333), RoundedCornerShape(4.dp))
-                    .border(1.dp, Color.Gray, RoundedCornerShape(4.dp))
+                    .background(MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.92f), RoundedCornerShape(4.dp))
+                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(4.dp))
                     .padding(8.dp)
             ) {
-                Text(text = tooltip, color = Color.White, fontSize = 12.sp)
+                Text(text = tooltip, color = MaterialTheme.colorScheme.inverseOnSurface, fontSize = 12.sp)
             }
         },
         delayMillis = 500,
@@ -243,8 +282,8 @@ fun ToolbarIconButton(
             onClick = onClick,
             modifier = modifier,
             colors = if (isSelected) IconButtonDefaults.filledIconButtonColors(
-                containerColor = Color(0xFFE3F2FD),
-                contentColor = Color(0xFF1976D2)
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
             ) else IconButtonDefaults.iconButtonColors()
         ) {
             Icon(icon, contentDescription = tooltip, modifier = Modifier.size(20.dp))
@@ -336,6 +375,7 @@ fun App() {
     var loadRequestId by remember { mutableStateOf(0L) }
     var showRows by remember { mutableStateOf(prefs.getBoolean(PREF_SHOW_ROWS, true)) }
     var isSelectMode by remember { mutableStateOf(prefs.getBoolean(PREF_IS_SELECT_MODE, true)) }
+    var isDarkMode by remember { mutableStateOf(prefs.getBoolean(PREF_IS_DARK_MODE, false)) }
     var zoom by remember { mutableStateOf(prefs.getFloat(PREF_ZOOM, 1f)) }
     var showAboutDialog by remember { mutableStateOf(false) }
     var selectedSnapshotFilterNodeIds by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -863,7 +903,12 @@ fun App() {
                         onNodeSelect = { selectedNodeIds = setOf(it.id) }
                     )
                 } else {
-                    Text("No graph loaded.", fontSize = 12.sp, color = Color.Gray, modifier = Modifier.padding(8.dp))
+                    Text(
+                        "No graph loaded.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(8.dp)
+                    )
                 }
             }
             "inspector" -> NodeDetailsContent(visibleGraphModel, selectedNodeIds)
@@ -902,19 +947,23 @@ fun App() {
 
     fun toolWindowTitle(id: String): String = toolWindows.firstOrNull { it.id == id }?.title ?: id
 
-    MaterialTheme {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .onGloballyPositioned { coords -> appWindowBounds = coords.boundsInWindow() }
-        ) {
+    MaterialTheme(
+        colorScheme = if (isDarkMode) IceLensDarkColorScheme else IceLensLightColorScheme
+    ) {
+        CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
+                    .onGloballyPositioned { coords -> appWindowBounds = coords.boundsInWindow() }
+            ) {
             Column(Modifier.fillMaxSize()) {
 
             Row(
                 Modifier
                     .fillMaxWidth()
                     .height(40.dp)
-                    .background(Color(0xFFEEEEEE))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
                     .padding(horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -929,7 +978,7 @@ fun App() {
                         isSelected = !isSelectMode,
                         modifier = Modifier.size(32.dp)
                     )
-                    Box(Modifier.width(1.dp).height(16.dp).background(Color(0xFFCCCCCC)))
+                    Box(Modifier.width(1.dp).height(16.dp).background(MaterialTheme.colorScheme.outlineVariant))
                     ToolbarIconButton(
                         icon = Icons.Default.AdsClick,
                         tooltip = "Selection Mode",
@@ -954,14 +1003,14 @@ fun App() {
                         },
                         modifier = Modifier.size(32.dp)
                     )
-                    Box(Modifier.width(1.dp).height(16.dp).background(Color(0xFFCCCCCC)))
+                    Box(Modifier.width(1.dp).height(16.dp).background(MaterialTheme.colorScheme.outlineVariant))
                     Text(
                         "${(zoom * 100).toInt()}%",
                         fontSize = 11.sp,
                         modifier = Modifier.width(45.dp),
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
                     )
-                    Box(Modifier.width(1.dp).height(16.dp).background(Color(0xFFCCCCCC)))
+                    Box(Modifier.width(1.dp).height(16.dp).background(MaterialTheme.colorScheme.outlineVariant))
                     ToolbarIconButton(
                         icon = Icons.Default.ZoomIn,
                         tooltip = "Zoom In",
@@ -971,7 +1020,7 @@ fun App() {
                         },
                         modifier = Modifier.size(32.dp)
                     )
-                    Box(Modifier.width(1.dp).height(16.dp).background(Color(0xFFCCCCCC)))
+                    Box(Modifier.width(1.dp).height(16.dp).background(MaterialTheme.colorScheme.outlineVariant))
                     ToolbarIconButton(
                         icon = Icons.Default.ZoomOutMap,
                         tooltip = "Original Size (100%)",
@@ -994,7 +1043,7 @@ fun App() {
                         },
                         modifier = Modifier.size(32.dp)
                     )
-                    Box(Modifier.width(1.dp).height(16.dp).background(Color(0xFFCCCCCC)))
+                    Box(Modifier.width(1.dp).height(16.dp).background(MaterialTheme.colorScheme.outlineVariant))
                     ToolbarIconButton(
                         icon = Icons.Default.Schema,
                         tooltip = "Re-apply Layout",
@@ -1088,7 +1137,7 @@ fun App() {
                                                     Text(
                                                         formatAppTimestamp(option.timestampMs),
                                                         fontSize = 10.sp,
-                                                        color = Color.Gray
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                                     )
                                                 }
                                             }
@@ -1106,7 +1155,7 @@ fun App() {
                             }
                         }
                     }
-                    Box(Modifier.width(1.dp).height(16.dp).background(Color(0xFFCCCCCC)))
+                    Box(Modifier.width(1.dp).height(16.dp).background(MaterialTheme.colorScheme.outlineVariant))
                     Text(
                         text = if (selectedSnapshotFilterNodeIds.isEmpty()) {
                             "All"
@@ -1121,6 +1170,16 @@ fun App() {
                 Spacer(Modifier.weight(1f))
 
                 ToolbarGroup {
+                    ToolbarIconButton(
+                        icon = if (isDarkMode) Icons.Default.LightMode else Icons.Default.DarkMode,
+                        tooltip = if (isDarkMode) "Switch to light mode" else "Switch to dark mode",
+                        onClick = {
+                            isDarkMode = !isDarkMode
+                            prefs.putBoolean(PREF_IS_DARK_MODE, isDarkMode)
+                        },
+                        modifier = Modifier.size(32.dp)
+                    )
+                    Box(Modifier.width(1.dp).height(16.dp).background(MaterialTheme.colorScheme.outlineVariant))
                     fun openGithubLink() {
                         runCatching {
                             if (!Desktop.isDesktopSupported()) {
@@ -1137,7 +1196,7 @@ fun App() {
                         onClick = { showAboutDialog = true },
                         modifier = Modifier.size(32.dp)
                     )
-                    Box(Modifier.width(1.dp).height(16.dp).background(Color(0xFFCCCCCC)))
+                    Box(Modifier.width(1.dp).height(16.dp).background(MaterialTheme.colorScheme.outlineVariant))
                     ToolbarIconButton(
                         icon = Icons.AutoMirrored.Filled.OpenInNew,
                         tooltip = "Open GitHub",
@@ -1165,7 +1224,7 @@ fun App() {
             @Composable
             fun WindowSlot(paneId: String?, modifier: Modifier = Modifier) {
                 if (paneId == null) {
-                    Box(modifier.background(Color(0xFFF7F7F7)))
+                    Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant))
                     return
                 }
                 ToolWindowPane(
@@ -1212,7 +1271,7 @@ fun App() {
                         Column(Modifier.fillMaxSize()) {
                             if (leftTopId != null && leftBottomId != null) {
                                 Box(Modifier.weight(leftSplitRatio).fillMaxWidth()) { WindowSlot(leftTopId, Modifier.fillMaxSize()) }
-                                HorizontalDivider(color = Color(0xFF9E9E9E), thickness = 1.dp)
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 1.dp)
                                 DraggableHorizontalDivider(onDrag = { delta ->
                                     val h = (delta / 600f)
                                     leftSplitRatio = (leftSplitRatio + h).coerceIn(0.2f, 0.8f)
@@ -1257,7 +1316,7 @@ fun App() {
                     } else if (!isLoadingTable && workspaceItems.isNotEmpty()) {
                         Text(
                             "Select a table from the sidebar to view its structure.",
-                            color = Color.Gray,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.align(Alignment.Center)
                         )
                     }
@@ -1269,7 +1328,7 @@ fun App() {
                         ) {
                             CircularProgressIndicator()
                             Spacer(Modifier.height(8.dp))
-                            Text("Loading table...")
+                            Text("Loading table...", color = MaterialTheme.colorScheme.onSurface)
                         }
                     }
 
@@ -1294,7 +1353,7 @@ fun App() {
                         Column(Modifier.fillMaxSize()) {
                             if (rightTopId != null && rightBottomId != null) {
                                 Box(Modifier.weight(rightSplitRatio).fillMaxWidth()) { WindowSlot(rightTopId, Modifier.fillMaxSize()) }
-                                HorizontalDivider(color = Color(0xFF9E9E9E), thickness = 1.dp)
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 1.dp)
                                 DraggableHorizontalDivider(onDrag = { delta ->
                                     val h = (delta / 600f)
                                     rightSplitRatio = (rightSplitRatio + h).coerceIn(0.2f, 0.8f)
@@ -1440,7 +1499,7 @@ fun App() {
                         )
                     }
                 }
-            }
+                }
 
             }
 
@@ -1462,7 +1521,7 @@ fun App() {
                             Spacer(Modifier.height(6.dp))
                             Text(
                                 text = githubUrl,
-                                color = Color(0xFF1565C0),
+                                color = MaterialTheme.colorScheme.primary,
                                 fontWeight = FontWeight.Medium,
                                 modifier = Modifier.clickable {
                                     runCatching {
@@ -1483,8 +1542,8 @@ fun App() {
             if (draggingToolWindowId != null) {
                 val sideDropWidth = 220.dp
                 val bottomDropHeight = 160.dp
-                val baseColor = Color(0xFF90CAF9).copy(alpha = 0.12f)
-                val activeColor = Color(0xFF64B5F6).copy(alpha = 0.32f)
+                val baseColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                val activeColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.32f)
 
                 Column(
                     Modifier
@@ -1499,7 +1558,7 @@ fun App() {
                             .fillMaxWidth()
                             .background(if (dragTargetAnchor == ToolWindowAnchor.LEFT_TOP) activeColor else baseColor)
                     )
-                    HorizontalDivider(color = Color(0xFF7BAFEA), thickness = 1.dp)
+                    HorizontalDivider(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f), thickness = 1.dp)
                     Box(
                         Modifier
                             .weight(1f)
@@ -1521,7 +1580,7 @@ fun App() {
                             .fillMaxWidth()
                             .background(if (dragTargetAnchor == ToolWindowAnchor.RIGHT_TOP) activeColor else baseColor)
                     )
-                    HorizontalDivider(color = Color(0xFF7BAFEA), thickness = 1.dp)
+                    HorizontalDivider(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f), thickness = 1.dp)
                     Box(
                         Modifier
                             .weight(1f)
@@ -1546,6 +1605,7 @@ fun App() {
                 )
             }
         }
+    }
     }
 
     LaunchedEffect(showRows) {

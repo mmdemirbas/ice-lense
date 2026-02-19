@@ -93,6 +93,19 @@ private fun formatBytes(bytes: Long?): String {
     return "${formatCount(bytes)} bytes ($compact ${units[unitIndex]})"
 }
 
+private val NodeCardTextPrimary = Color(0xFF1A1C1E)
+private val NodeCardTextSecondary = Color(0xFF3D4652)
+private val DarkSelectionAccent = Color(0xFF00E5FF)
+
+private fun isDarkSurfaceColor(color: Color): Boolean =
+    (0.2126f * color.red + 0.7152f * color.green + 0.0722f * color.blue) < 0.5f
+
+@Composable
+private fun selectionHighlightColor(): Color {
+    val colors = MaterialTheme.colorScheme
+    return if (isDarkSurfaceColor(colors.surface)) DarkSelectionAccent else colors.primary
+}
+
 fun getGraphNodeColor(node: GraphNode): Color = when (node) {
     is GraphNode.TableNode    -> Color(0xFFD7CCC8)
     is GraphNode.MetadataNode -> if (isPrimaryMetadataFile(node.fileName)) Color(0xFFE1BEE7) else Color(0xFFD7CFDE)
@@ -157,12 +170,18 @@ fun formatTimestamp(ms: Long?): String {
 }
 
 @Composable
-fun DetailTable(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+fun DetailTable(
+    modifier: Modifier = Modifier,
+    isDark: Boolean = false,
+    content: @Composable () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    val borderColor = if (isDark) colors.outline else colors.outlineVariant
     Column(
         modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(4.dp))
-            .border(1.dp, Color.LightGray, RoundedCornerShape(4.dp))
+            .border(1.dp, borderColor, RoundedCornerShape(4.dp))
     ) {
         content()
     }
@@ -170,10 +189,19 @@ fun DetailTable(modifier: Modifier = Modifier, content: @Composable () -> Unit) 
 
 @Composable
 fun DetailRow(key: String, value: String, isHeader: Boolean = false, isDark: Boolean = false) {
-    val bgColor = if (isHeader) (if (isDark) Color(0xFF444444) else Color(0xFFF5F5F5)) else Color.Transparent
-    val keyColor = if (isHeader) (if (isDark) Color.White else Color.Black) else (if (isDark) Color.LightGray else Color.Gray)
-    val valColor = if (isDark) Color.White else Color.Black
-    val dividerColor = if (isDark) Color(0xFF555555) else Color(0xFFE0E0E0)
+    val colors = MaterialTheme.colorScheme
+    val bgColor = if (isHeader) {
+        if (isDark) colors.inverseSurface.copy(alpha = 0.58f) else colors.surfaceVariant
+    } else {
+        Color.Transparent
+    }
+    val keyColor = if (isDark) {
+        if (isHeader) colors.inverseOnSurface else colors.inverseOnSurface.copy(alpha = 0.82f)
+    } else {
+        if (isHeader) colors.onSurface else colors.onSurfaceVariant
+    }
+    val valColor = if (isDark) colors.inverseOnSurface else colors.onSurface
+    val dividerColor = if (isDark) colors.inverseOnSurface.copy(alpha = 0.28f) else colors.outlineVariant
 
     Row(
         Modifier
@@ -207,10 +235,11 @@ fun DetailRow(key: String, value: String, isHeader: Boolean = false, isDark: Boo
 
 @Composable
 fun NodeTooltip(node: GraphNode) {
+    val colors = MaterialTheme.colorScheme
     Column(
         modifier = Modifier
-            .background(Color(0xEE333333), RoundedCornerShape(4.dp))
-            .border(1.dp, Color.Gray, RoundedCornerShape(4.dp))
+            .background(colors.inverseSurface.copy(alpha = 0.92f), RoundedCornerShape(4.dp))
+            .border(1.dp, colors.outline, RoundedCornerShape(4.dp))
             .padding(8.dp)
             .width(IntrinsicSize.Max)
             .defaultMinSize(minWidth = 250.dp)
@@ -229,11 +258,11 @@ fun NodeTooltip(node: GraphNode) {
             text = title.uppercase(),
             fontSize = 10.sp,
             fontWeight = FontWeight.Bold,
-            color = Color.LightGray,
+            color = colors.inverseOnSurface,
             modifier = Modifier.padding(bottom = 4.dp)
         )
         
-        DetailTable {
+        DetailTable(isDark = true) {
             when (node) {
                 is GraphNode.TableNode -> {
                     DetailRow("Name", node.summary.tableName, isDark = true)
@@ -293,8 +322,9 @@ fun NodeTooltip(node: GraphNode) {
 
 @Composable
 fun TableCard(node: GraphNode.TableNode, isSelected: Boolean = false) {
-    val borderWidth = if (isSelected) 4.dp else 2.dp
-    val borderColor = if (isSelected) Color.Black else getGraphNodeBorderColor(node)
+    val selectionBorderColor = selectionHighlightColor()
+    val borderWidth = if (isSelected) 6.dp else 2.dp
+    val borderColor = if (isSelected) selectionBorderColor else getGraphNodeBorderColor(node)
     Box(
         modifier = Modifier
             .size(node.width.dp, node.height.dp)
@@ -307,20 +337,21 @@ fun TableCard(node: GraphNode.TableNode, isSelected: Boolean = false) {
                 "TABLE",
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color.DarkGray
+                color = NodeCardTextSecondary
             )
-            Text(node.summary.tableName, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("Metadata: ${node.summary.metadataFileCount}", fontSize = 11.sp)
-            Text("Snapshots: ${node.summary.snapshotCount}", fontSize = 11.sp)
-            Text("Current Version: ${node.summary.currentMetadataVersion ?: "N/A"}", fontSize = 10.sp)
+            Text(node.summary.tableName, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = NodeCardTextPrimary)
+            Text("Metadata: ${node.summary.metadataFileCount}", fontSize = 11.sp, color = NodeCardTextPrimary)
+            Text("Snapshots: ${node.summary.snapshotCount}", fontSize = 11.sp, color = NodeCardTextPrimary)
+            Text("Current Version: ${node.summary.currentMetadataVersion ?: "N/A"}", fontSize = 10.sp, color = NodeCardTextSecondary)
         }
     }
 }
 
 @Composable
 fun MetadataCard(node: GraphNode.MetadataNode, isSelected: Boolean = false) {
-    val borderWidth = if (isSelected) 4.dp else 2.dp
-    val borderColor = if (isSelected) Color.Black else getGraphNodeBorderColor(node)
+    val selectionBorderColor = selectionHighlightColor()
+    val borderWidth = if (isSelected) 6.dp else 2.dp
+    val borderColor = if (isSelected) selectionBorderColor else getGraphNodeBorderColor(node)
     val metadataId = node.simpleId.toString()
     Box(
         modifier = Modifier
@@ -333,39 +364,41 @@ fun MetadataCard(node: GraphNode.MetadataNode, isSelected: Boolean = false) {
                 "METADATA $metadataId",
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color.DarkGray
+                color = NodeCardTextSecondary
             )
-            Text(node.fileName, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-            Text("Format V${node.data.formatVersion}", fontSize = 11.sp)
-            Text("Snapshots: ${node.data.snapshots.size}", fontSize = 11.sp)
-            Text("Current Snap: ${node.data.currentSnapshotId ?: "None"}", fontSize = 10.sp)
+            Text(node.fileName, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = NodeCardTextPrimary)
+            Text("Format V${node.data.formatVersion}", fontSize = 11.sp, color = NodeCardTextPrimary)
+            Text("Snapshots: ${node.data.snapshots.size}", fontSize = 11.sp, color = NodeCardTextPrimary)
+            Text("Current Snap: ${node.data.currentSnapshotId ?: "None"}", fontSize = 10.sp, color = NodeCardTextSecondary)
         }
     }
 }
 
 @Composable
 fun SnapshotCard(node: GraphNode.SnapshotNode, isSelected: Boolean = false) {
-    val borderWidth = if (isSelected) 4.dp else 2.dp
-    val borderColor = if (isSelected) Color.Black else Color(0xFF1976D2)
+    val selectionBorderColor = selectionHighlightColor()
+    val borderWidth = if (isSelected) 6.dp else 2.dp
+    val borderColor = if (isSelected) selectionBorderColor else getGraphNodeBorderColor(node)
     val fileName = fileNameFromPath(node.localPath ?: node.data.manifestList)
     Box(
         modifier = Modifier
         .size(node.width.dp, node.height.dp)
-        .background(Color(0xFFBBDEFB), RoundedCornerShape(8.dp))
+        .background(getGraphNodeColor(node), RoundedCornerShape(8.dp))
         .border(BorderStroke(borderWidth, borderColor), RoundedCornerShape(8.dp))
         .padding(8.dp)) {
         Column {
-            Text("SNAPSHOT ${node.simpleId}", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.DarkGray)
-            Text(fileName, fontSize = 9.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            Text("SNAPSHOT ${node.simpleId}", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = NodeCardTextSecondary)
+            Text(fileName, fontSize = 9.sp, maxLines = 3, overflow = TextOverflow.Ellipsis, color = NodeCardTextPrimary)
         }
     }
 }
 
 @Composable
 fun ManifestCard(node: GraphNode.ManifestNode, isSelected: Boolean = false) {
+    val selectionBorderColor = selectionHighlightColor()
     val color = getGraphNodeColor(node)
-    val borderColor = if (isSelected) Color.Black else getGraphNodeBorderColor(node)
-    val borderWidth = if (isSelected) 4.dp else 2.dp
+    val borderColor = if (isSelected) selectionBorderColor else getGraphNodeBorderColor(node)
+    val borderWidth = if (isSelected) 6.dp else 2.dp
     val contentLabel = manifestContentLabel(node.data.content)
     val fileName = fileNameFromPath(node.localPath ?: node.data.manifestPath)
 
@@ -379,18 +412,20 @@ fun ManifestCard(node: GraphNode.ManifestNode, isSelected: Boolean = false) {
             Text(
                 "MANIFEST ${node.simpleId}: $contentLabel",
                 fontSize = 9.sp,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                color = NodeCardTextSecondary
             )
-            Text(fileName, fontSize = 9.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            Text(fileName, fontSize = 9.sp, maxLines = 3, overflow = TextOverflow.Ellipsis, color = NodeCardTextPrimary)
         }
     }
 }
 
 @Composable
 fun FileCard(node: GraphNode.FileNode, isSelected: Boolean = false) {
+    val selectionBorderColor = selectionHighlightColor()
     val label = "FILE ${node.simpleId}: ${fileContentLabel(node.data.content)}"
-    val borderWidth = if (isSelected) 3.dp else 1.dp
-    val borderColor = if (isSelected) Color.Black else getGraphNodeBorderColor(node)
+    val borderWidth = if (isSelected) 5.dp else 1.dp
+    val borderColor = if (isSelected) selectionBorderColor else getGraphNodeBorderColor(node)
     val fileName = fileNameFromPath(node.localPath ?: node.data.filePath)
 
     Box(
@@ -404,18 +439,19 @@ fun FileCard(node: GraphNode.FileNode, isSelected: Boolean = false) {
                 label,
                 fontSize = 8.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color.DarkGray
+                color = NodeCardTextSecondary
             )
-            Text(fileName, fontSize = 8.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text("${node.data.recordCount} rows", fontSize = 10.sp)
+            Text(fileName, fontSize = 8.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, color = NodeCardTextPrimary)
+            Text("${node.data.recordCount} rows", fontSize = 10.sp, color = NodeCardTextPrimary)
         }
     }
 }
 
 @Composable
 fun RowCard(node: GraphNode.RowNode, isSelected: Boolean = false) {
-    val borderWidth = if (isSelected) 3.dp else 1.dp
-    val borderColor = if (isSelected) Color.Black else getGraphNodeBorderColor(node)
+    val selectionBorderColor = selectionHighlightColor()
+    val borderWidth = if (isSelected) 5.dp else 1.dp
+    val borderColor = if (isSelected) selectionBorderColor else getGraphNodeBorderColor(node)
     val fileNo = node.data["file_no"]?.toString() ?: "?"
     val rowIdx = node.data["row_idx"]?.toString() ?: "?"
     val targetFileNo = node.data["target_file_no"]?.toString()
@@ -432,14 +468,14 @@ fun RowCard(node: GraphNode.RowNode, isSelected: Boolean = false) {
                 "ROW $fileNo.$rowIdx: ${rowStatusShortLabel(node.content)}",
                 fontSize = 9.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color.DarkGray
+                color = NodeCardTextSecondary
             )
             if (node.content == 1 && (targetFileNo != null || targetRowPos != null)) {
                 val targetLabel = "${targetFileNo ?: "?"}.${targetRowPos ?: "?"}"
                 Text(
                     "Target: $targetLabel",
                     fontSize = 9.sp,
-                    color = Color.DarkGray
+                    color = NodeCardTextSecondary
                 )
             }
             Spacer(Modifier.height(2.dp))
@@ -449,12 +485,13 @@ fun RowCard(node: GraphNode.RowNode, isSelected: Boolean = false) {
                 Text(
                     text = "$k: $v",
                     fontSize = 10.sp,
+                    color = NodeCardTextPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
             if (detailEntries.size > 3) {
-                Text("...", fontSize = 10.sp, color = Color.Gray)
+                Text("...", fontSize = 10.sp, color = NodeCardTextSecondary)
             }
         }
     }
@@ -462,8 +499,9 @@ fun RowCard(node: GraphNode.RowNode, isSelected: Boolean = false) {
 
 @Composable
 fun ErrorCard(node: GraphNode.ErrorNode, isSelected: Boolean = false) {
-    val borderWidth = if (isSelected) 3.dp else 2.dp
-    val borderColor = if (isSelected) Color.Black else getGraphNodeBorderColor(node)
+    val selectionBorderColor = selectionHighlightColor()
+    val borderWidth = if (isSelected) 5.dp else 2.dp
+    val borderColor = if (isSelected) selectionBorderColor else getGraphNodeBorderColor(node)
     Box(
         modifier = Modifier
             .size(node.width.dp, node.height.dp)
@@ -473,10 +511,10 @@ fun ErrorCard(node: GraphNode.ErrorNode, isSelected: Boolean = false) {
     ) {
         Column(Modifier.fillMaxSize()) {
             Text("ERROR", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color(0xFFB71C1C))
-            Text(node.title, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("Stage: ${node.stage}", fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(node.path, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(node.message, fontSize = 10.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(node.title, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = NodeCardTextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("Stage: ${node.stage}", fontSize = 9.sp, color = NodeCardTextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(node.path, fontSize = 9.sp, color = NodeCardTextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(node.message, fontSize = 10.sp, color = NodeCardTextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
     }
 }

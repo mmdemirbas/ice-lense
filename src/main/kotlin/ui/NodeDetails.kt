@@ -7,9 +7,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -92,11 +95,13 @@ private fun manifestContentRank(content: Int?): Int = when (content ?: 0) {
     else -> 2
 }
 
+@Composable
 private fun jsonToAnnotatedString(json: String): AnnotatedString {
-    val stringStyle = SpanStyle(color = Color(0xFF2E7D32))
-    val numberStyle = SpanStyle(color = Color(0xFF1565C0))
-    val keywordStyle = SpanStyle(color = Color(0xFF8E24AA), fontWeight = FontWeight.SemiBold)
-    val punctStyle = SpanStyle(color = Color(0xFF616161))
+    val colors = MaterialTheme.colorScheme
+    val stringStyle = SpanStyle(color = colors.secondary)
+    val numberStyle = SpanStyle(color = colors.primary)
+    val keywordStyle = SpanStyle(color = colors.tertiary, fontWeight = FontWeight.SemiBold)
+    val punctStyle = SpanStyle(color = colors.onSurfaceVariant)
     val builder = AnnotatedString.Builder()
 
     var i = 0
@@ -415,6 +420,7 @@ private fun WideTable(
     rows: List<List<String>>,
     columnWidth: Dp = 180.dp,
 ) {
+    val colors = MaterialTheme.colorScheme
     val horizontalState = rememberScrollState()
     val tableWidth = (headers.size * columnWidth.value).dp + ((headers.size - 1).coerceAtLeast(0) * 9).dp + 16.dp
     Row(
@@ -426,7 +432,7 @@ private fun WideTable(
             Modifier
                 .width(tableWidth)
                 .clip(androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
-                .border(1.dp, Color.LightGray, androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
+                .border(1.dp, colors.outlineVariant, androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
         ) {
             WideTableRow(headers, headers.size, columnWidth, isHeader = true)
             rows.forEach { row -> WideTableRow(row, headers.size, columnWidth, isHeader = false) }
@@ -436,7 +442,8 @@ private fun WideTable(
 
 @Composable
 private fun WideTableRow(cells: List<String>, columns: Int, columnWidth: Dp, isHeader: Boolean) {
-    val bgColor = if (isHeader) Color(0xFFF5F5F5) else Color.Transparent
+    val colors = MaterialTheme.colorScheme
+    val bgColor = if (isHeader) colors.surfaceVariant else Color.Transparent
     val normalizedCells = if (cells.size < columns) {
         cells + List(columns - cells.size) { "" }
     } else {
@@ -451,7 +458,7 @@ private fun WideTableRow(cells: List<String>, columns: Int, columnWidth: Dp, isH
     ) {
         normalizedCells.forEachIndexed { index, cell ->
             if (index > 0) {
-                Box(Modifier.width(1.dp).height(16.dp).background(Color(0xFFE0E0E0)))
+                Box(Modifier.width(1.dp).height(16.dp).background(colors.outlineVariant))
                 Spacer(Modifier.width(8.dp))
             }
             Text(
@@ -465,7 +472,7 @@ private fun WideTableRow(cells: List<String>, columns: Int, columnWidth: Dp, isH
             )
         }
     }
-    HorizontalDivider(color = Color(0xFFE0E0E0), thickness = 0.5.dp)
+    HorizontalDivider(color = colors.outlineVariant, thickness = 0.5.dp)
 }
 
 private fun renderSnapshotLogRows(items: List<SnapshotLogEntry>): List<List<String>> =
@@ -486,66 +493,68 @@ private fun renderMetadataLogRows(items: List<MetadataLogEntry>): List<List<Stri
 
 @Composable
 fun NodeDetailsContent(graphModel: GraphModel?, selectedNodeIds: Set<String>) {
+    val colors = MaterialTheme.colorScheme
     SelectionContainer {
-        if (selectedNodeIds.isEmpty()) {
-            Text(
-                "Select a node to view details.",
-                fontSize = 12.sp,
-                color = Color.Gray,
-                modifier = Modifier.padding(8.dp)
-            )
-            return@SelectionContainer
-        }
-        if (selectedNodeIds.size > 1) {
-            Column(Modifier.padding(8.dp)) {
-                Text("${selectedNodeIds.size} Nodes Selected", fontWeight = FontWeight.Bold)
+        CompositionLocalProvider(LocalContentColor provides colors.onSurface) {
+            if (selectedNodeIds.isEmpty()) {
                 Text(
-                    "Drag any selected node to move the group together.",
+                    "Select a node to view details.",
                     fontSize = 12.sp,
-                    color = Color.Gray
+                    color = colors.onSurfaceVariant,
+                    modifier = Modifier.padding(8.dp)
                 )
+                return@CompositionLocalProvider
             }
-            return@SelectionContainer
-        }
+            if (selectedNodeIds.size > 1) {
+                Column(Modifier.padding(8.dp)) {
+                    Text("${selectedNodeIds.size} Nodes Selected", fontWeight = FontWeight.Bold)
+                    Text(
+                        "Drag any selected node to move the group together.",
+                        fontSize = 12.sp,
+                        color = colors.onSurfaceVariant
+                    )
+                }
+                return@CompositionLocalProvider
+            }
 
-        val currentGraph = graphModel ?: return@SelectionContainer
-        val node = currentGraph.nodes.find { it.id == selectedNodeIds.first() } ?: return@SelectionContainer
-        val children = remember(node.id, currentGraph.nodes, currentGraph.edges) { childNodes(node, currentGraph) }
+            val currentGraph = graphModel ?: return@CompositionLocalProvider
+            val node = currentGraph.nodes.find { it.id == selectedNodeIds.first() } ?: return@CompositionLocalProvider
+            val children = remember(node.id, currentGraph.nodes, currentGraph.edges) { childNodes(node, currentGraph) }
 
-        val scrollState = rememberScrollState()
-        Box(Modifier.fillMaxSize()) {
-            Column(
-                Modifier
-                    .fillMaxSize()
-                    .verticalScroll(scrollState)
-                    .padding(8.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
+            val scrollState = rememberScrollState()
+            Box(Modifier.fillMaxSize()) {
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .verticalScroll(scrollState)
+                        .padding(8.dp)
                 ) {
-                    Text(nodeTitle(node), fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.weight(1f))
-                    val openPath = inspectorOpenPath(node)
-                    if (!openPath.isNullOrBlank()) {
-                        TextButton(
-                            onClick = { openContainingDirectory(openPath) },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                            modifier = Modifier.height(28.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.FolderOpen,
-                                contentDescription = null,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(Modifier.width(4.dp))
-                            Text("Reveal", fontSize = 11.sp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(nodeTitle(node), fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                        val openPath = inspectorOpenPath(node)
+                        if (!openPath.isNullOrBlank()) {
+                            TextButton(
+                                onClick = { openContainingDirectory(openPath) },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                modifier = Modifier.height(28.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.FolderOpen,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text("Reveal", fontSize = 11.sp)
+                            }
                         }
                     }
-                }
-                Text("Node ID: ${node.id}", fontSize = 11.sp, color = Color.Gray)
-                Spacer(Modifier.height(8.dp))
+                    Text("Node ID: ${node.id}", fontSize = 11.sp, color = colors.onSurfaceVariant)
+                    Spacer(Modifier.height(8.dp))
 
-                when (node) {
+                    when (node) {
                     is GraphNode.TableNode -> {
                         val summary = node.summary
                         val metadataChildren = children
@@ -906,8 +915,8 @@ fun NodeDetailsContent(graphModel: GraphModel?, selectedNodeIds: Set<String>) {
                                     .fillMaxWidth()
                                     .heightIn(min = 220.dp, max = 420.dp)
                                     .clip(androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
-                                    .border(1.dp, Color.LightGray, androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
-                                    .background(Color(0xFFFAFAFA))
+                                    .border(1.dp, colors.outlineVariant, androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
+                                    .background(colors.surface)
                                     .horizontalScroll(rawJsonScrollX)
                                     .verticalScroll(rawJsonScrollY)
                                     .padding(8.dp)
@@ -1186,8 +1195,8 @@ fun NodeDetailsContent(graphModel: GraphModel?, selectedNodeIds: Set<String>) {
                             Modifier
                                 .fillMaxWidth()
                                 .clip(androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
-                                .border(1.dp, Color.LightGray, androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
-                                .background(Color(0xFFF7F7F7))
+                                .border(1.dp, colors.outlineVariant, androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
+                                .background(colors.surfaceVariant)
                                 .padding(8.dp)
                         ) {
                             Text(
@@ -1204,5 +1213,6 @@ fun NodeDetailsContent(graphModel: GraphModel?, selectedNodeIds: Set<String>) {
                 adapter = rememberScrollbarAdapter(scrollState)
             )
         }
+    }
     }
 }

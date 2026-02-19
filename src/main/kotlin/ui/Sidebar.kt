@@ -26,6 +26,12 @@ import model.WorkspaceTableStatus
 import java.io.File
 import javax.swing.JFileChooser
 
+private fun isDarkSurfaceColor(color: Color): Boolean =
+    (0.2126f * color.red + 0.7152f * color.green + 0.0722f * color.blue) < 0.5f
+
+private fun selectionHighlightColor(colors: ColorScheme): Color =
+    if (isDarkSurfaceColor(colors.surface)) Color(0xFF00E5FF) else colors.primary
+
 @Composable
 fun CompactSearchField(
     value: String,
@@ -33,25 +39,26 @@ fun CompactSearchField(
     modifier: Modifier = Modifier,
     placeholder: String = "Search..."
 ) {
+    val colors = MaterialTheme.colorScheme
     Row(
         modifier = modifier
             .height(32.dp)
-            .background(Color.White, RoundedCornerShape(6.dp))
-            .border(1.dp, Color(0xFFD0D0D0), RoundedCornerShape(6.dp))
+            .background(colors.surface, RoundedCornerShape(6.dp))
+            .border(1.dp, colors.outlineVariant, RoundedCornerShape(6.dp))
             .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(Icons.Default.Search, null, modifier = Modifier.size(14.dp), tint = Color.Gray)
+        Icon(Icons.Default.Search, null, modifier = Modifier.size(14.dp), tint = colors.onSurfaceVariant)
         Spacer(Modifier.width(6.dp))
         Box(Modifier.weight(1f)) {
             if (value.isEmpty()) {
-                Text(placeholder, fontSize = 11.sp, color = Color.Gray)
+                Text(placeholder, fontSize = 11.sp, color = colors.onSurfaceVariant)
             }
             BasicTextField(
                 value = value,
                 onValueChange = onValueChange,
                 singleLine = true,
-                textStyle = LocalTextStyle.current.copy(fontSize = 11.sp, color = Color.Black),
+                textStyle = LocalTextStyle.current.copy(fontSize = 11.sp, color = colors.onSurface),
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -61,7 +68,7 @@ fun CompactSearchField(
                 Icons.Default.Clear,
                 null,
                 modifier = Modifier.size(14.dp).clickable { onValueChange("") },
-                tint = Color.Gray
+                tint = colors.onSurfaceVariant
             )
         }
     }
@@ -90,9 +97,10 @@ fun WorkspacePanel(
     val currentWorkspaceItems by rememberUpdatedState(workspaceItems)
     val currentOnMoveRoot by rememberUpdatedState(onMoveRoot)
 
-    Column(
-        modifier = Modifier.fillMaxSize().background(Color(0xFFF5F5F5)).padding(8.dp)
-    ) {
+    val colors = MaterialTheme.colorScheme
+    val selectionColor = selectionHighlightColor(colors)
+    val selectedBgColor = selectionColor.copy(alpha = if (isDarkSurfaceColor(colors.surface)) 0.4f else 0.2f)
+    Column(modifier = Modifier.fillMaxSize().background(colors.surfaceVariant).padding(8.dp)) {
         Button(
             onClick = {
                 val chooser = JFileChooser()
@@ -116,7 +124,7 @@ fun WorkspacePanel(
             text = "WORKSPACE",
             fontSize = 10.sp,
             fontWeight = FontWeight.Bold,
-            color = Color.Gray,
+            color = colors.onSurfaceVariant,
             modifier = Modifier.padding(bottom = 4.dp)
         )
 
@@ -250,16 +258,16 @@ fun WorkspacePanel(
                             val tablePath = "${item.path}/$tableName"
                             val isSelected = tablePath == selectedTablePath
                             val statusBgColor = when (tableStatus) {
-                                WorkspaceTableStatus.NEW -> Color(0xFFFFF8E1)
-                                WorkspaceTableStatus.DELETED -> Color(0xFFFFEBEE)
+                                WorkspaceTableStatus.NEW -> colors.secondaryContainer.copy(alpha = 0.42f)
+                                WorkspaceTableStatus.DELETED -> colors.errorContainer.copy(alpha = 0.42f)
                                 WorkspaceTableStatus.EXISTING -> Color.Transparent
                             }
-                            val bgColor = if (isSelected) Color(0xFFE3F2FD) else statusBgColor
+                            val bgColor = if (isSelected) selectedBgColor else statusBgColor
                             val textColor = when {
-                                isSelected -> Color(0xFF1976D2)
-                                tableStatus == WorkspaceTableStatus.NEW -> Color(0xFFF57F17)
-                                tableStatus == WorkspaceTableStatus.DELETED -> Color(0xFFC62828)
-                                else -> Color.Black
+                                isSelected -> selectionColor
+                                tableStatus == WorkspaceTableStatus.NEW -> colors.secondary
+                                tableStatus == WorkspaceTableStatus.DELETED -> colors.error
+                                else -> colors.onSurface
                             }
                             val label = when (tableStatus) {
                                 WorkspaceTableStatus.NEW -> "$tableName (new)"
@@ -275,7 +283,7 @@ fun WorkspacePanel(
                                     .padding(vertical = 4.dp, horizontal = 24.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(Icons.Default.TableChart, null, modifier = Modifier.size(14.dp), tint = Color.Gray)
+                                Icon(Icons.Default.TableChart, null, modifier = Modifier.size(14.dp), tint = colors.onSurfaceVariant)
                                 Spacer(Modifier.width(8.dp))
                                 Text(
                                     text = label,
@@ -327,21 +335,24 @@ fun WorkspaceRootItem(
     onRemove: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val colors = MaterialTheme.colorScheme
+    val selectionColor = selectionHighlightColor(colors)
+    val selectedBgColor = selectionColor.copy(alpha = if (isDarkSurfaceColor(colors.surface)) 0.4f else 0.2f)
     val prefix = when (item) {
         is WorkspaceItem.Warehouse   -> "warehouse: "
         is WorkspaceItem.SingleTable -> "table: "
     }
     val statusBgColor = when (status) {
-        WorkspaceTableStatus.NEW -> Color(0xFFFFF8E1)
-        WorkspaceTableStatus.DELETED -> Color(0xFFFFEBEE)
+        WorkspaceTableStatus.NEW -> colors.secondaryContainer.copy(alpha = 0.42f)
+        WorkspaceTableStatus.DELETED -> colors.errorContainer.copy(alpha = 0.42f)
         else -> Color.Transparent
     }
-    val bgColor = if (isSelected) Color(0xFFE3F2FD) else statusBgColor
+    val bgColor = if (isSelected) selectedBgColor else statusBgColor
     val textColor = when {
-        isSelected -> Color(0xFF1976D2)
-        status == WorkspaceTableStatus.NEW -> Color(0xFFF57F17)
-        status == WorkspaceTableStatus.DELETED -> Color(0xFFC62828)
-        else -> Color.Black
+        isSelected -> selectionColor
+        status == WorkspaceTableStatus.NEW -> colors.secondary
+        status == WorkspaceTableStatus.DELETED -> colors.error
+        else -> colors.onSurface
     }
     val suffix = when (status) {
         WorkspaceTableStatus.NEW -> " (new)"
@@ -369,7 +380,12 @@ fun WorkspaceRootItem(
             }
         } else {
             Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
-                Icon(Icons.Default.TableChart, null, modifier = Modifier.size(14.dp), tint = if (isSelected) Color(0xFF1976D2) else Color.Gray)
+                Icon(
+                    Icons.Default.TableChart,
+                    null,
+                    modifier = Modifier.size(14.dp),
+                    tint = if (isSelected) selectionColor else colors.onSurfaceVariant
+                )
             }
         }
 
@@ -384,7 +400,12 @@ fun WorkspaceRootItem(
         )
 
         IconButton(onClick = onRemove, modifier = Modifier.size(24.dp)) {
-            Icon(Icons.Default.Close, null, modifier = Modifier.size(14.dp), tint = Color.Red.copy(alpha = 0.7f))
+            Icon(
+                Icons.Default.Close,
+                null,
+                modifier = Modifier.size(14.dp),
+                tint = colors.error.copy(alpha = 0.8f)
+            )
         }
     }
 }

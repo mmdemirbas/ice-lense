@@ -26,15 +26,16 @@ fun TreeIconButton(
     tooltip: String,
     onClick: () -> Unit
 ) {
+    val colors = MaterialTheme.colorScheme
     TooltipArea(
         tooltip = {
             Box(
                 modifier = Modifier
-                    .background(Color(0xEE333333), RoundedCornerShape(4.dp))
-                    .border(1.dp, Color.Gray, RoundedCornerShape(4.dp))
+                    .background(colors.inverseSurface.copy(alpha = 0.92f), RoundedCornerShape(4.dp))
+                    .border(1.dp, colors.outlineVariant, RoundedCornerShape(4.dp))
                     .padding(8.dp)
             ) {
-                Text(text = tooltip, color = Color.White, fontSize = 12.sp)
+                Text(text = tooltip, color = colors.inverseOnSurface, fontSize = 12.sp)
             }
         },
         delayMillis = 500,
@@ -44,7 +45,7 @@ fun TreeIconButton(
         )
     ) {
         IconButton(onClick = onClick, modifier = Modifier.size(32.dp)) {
-            Icon(icon, contentDescription = tooltip, modifier = Modifier.size(18.dp), tint = Color.DarkGray)
+            Icon(icon, contentDescription = tooltip, modifier = Modifier.size(18.dp), tint = colors.onSurfaceVariant)
         }
     }
 }
@@ -55,6 +56,10 @@ fun NavigationTree(
     selectedNodeIds: Set<String>,
     onNodeSelect: (GraphNode) -> Unit,
 ) {
+    val colors = MaterialTheme.colorScheme
+    val isDarkSurface = (0.2126f * colors.surface.red + 0.7152f * colors.surface.green + 0.0722f * colors.surface.blue) < 0.5f
+    val selectionColor = if (isDarkSurface) Color(0xFF00E5FF) else colors.primary
+    val selectedBgColor = selectionColor.copy(alpha = if (isDarkSurface) 0.4f else 0.2f)
     val expandedNodeIdsByState = remember { mutableStateOf(setOf<String>()) }
     var expandedNodeIds by expandedNodeIdsByState
     var searchQuery by remember { mutableStateOf("") }
@@ -125,8 +130,8 @@ fun NavigationTree(
                         
                         val isSelected = selectedNodeIds.contains(node.id)
                         val isExpanded = expandedNodeIds.contains(node.id)
-                        val bgColor = if (isSelected) Color(0xFFE3F2FD) else Color.Transparent
-                        val textColor = if (isSelected) Color(0xFF1976D2) else Color.DarkGray
+                        val bgColor = if (isSelected) selectedBgColor else Color.Transparent
+                        val textColor = if (isSelected) selectionColor else colors.onSurfaceVariant
 
                         Row(
                             modifier = Modifier
@@ -152,7 +157,7 @@ fun NavigationTree(
                                     Icon(
                                         imageVector = if (isExpanded) Icons.Default.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
                                         contentDescription = "Toggle Expand",
-                                        tint = Color.Gray,
+                                        tint = colors.onSurfaceVariant,
                                         modifier = Modifier.fillMaxSize()
                                     )
                                 }
@@ -165,7 +170,7 @@ fun NavigationTree(
                                     getGraphNodeColor(node), androidx.compose.foundation.shape.CircleShape
                                 ).border(
                                     if (isSelected) 2.dp else 1.dp,
-                                    if (isSelected) Color.Black else getGraphNodeBorderColor(node),
+                                    if (isSelected) selectionColor else getGraphNodeBorderColor(node),
                                     androidx.compose.foundation.shape.CircleShape
                                 )
                             )
